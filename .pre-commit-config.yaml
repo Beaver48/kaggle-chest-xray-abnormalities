@@ -1,0 +1,34 @@
+repos:
+  - repo: https://gitlab.com/pycqa/flake8.git
+    rev: 3.8.0
+    hooks:
+      - id: flake8
+  - repo: https://github.com/asottile/seed-isort-config
+    rev: v2.1.0
+    hooks:
+      - id: seed-isort-config
+  - repo: https://github.com/timothycrosley/isort
+    rev: 4.3.21
+    hooks:
+      - id: isort
+  - repo: https://github.com/pre-commit/mirrors-yapf
+    rev: v0.29.0
+    hooks:
+      - id: yapf
+  - repo: https://github.com/pre-commit/mirrors-pylint
+    rev: v2.5.2
+    hooks:
+    -   id: pylint
+        args:
+        - --max-line-length=120
+        - --ignore-imports=yes
+        - -d E0401,C0114,C0116,C0103,W0105,R0903
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v2.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: double-quote-string-fixer
+      - id: check-merge-conflict
+      - id: fix-encoding-pragma
+        args: ["--remove"]

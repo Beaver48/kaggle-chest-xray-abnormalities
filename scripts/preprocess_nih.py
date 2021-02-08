@@ -1,13 +1,14 @@
 #! python3
-from kaggle.preprocess import ImgWriter
 import glob
-import pandas as pd
-import cv2
 import random
 from pathlib import Path
-from tqdm import tqdm
+
+import cv2
+import pandas as pd
+from kaggle.preprocess import ImgWriter
 from kaggle.utils import create_voc_dirs
 from mmcv import Config
+from tqdm import tqdm
 
 config = Config.fromfile('configs/preprocess/nih.py')['config']
 
@@ -20,7 +21,6 @@ class_map = {
     'Mass': 'Nodule/Mass',
     'Nodule': 'Nodule/Mass'
 }
-
 
 if __name__ == '__main__':
     annotations_dir, images_dir, image_sets_dir = create_voc_dirs(config['result_dir'], clear=True)
@@ -44,16 +44,15 @@ if __name__ == '__main__':
 
         img = cv2.imread(str(img_path))
         if img is not None:
-            bboxes = [(int(bbox_meta['x_min']), int(bbox_meta['y_min']), 
-                      int(bbox_meta['x_max']), int(bbox_meta['y_max'])) 
-                      for ind, bbox_meta in group.iterrows()]
+            bboxes = [(int(bbox_meta['x_min']), int(bbox_meta['y_min']), int(bbox_meta['x_max']),
+                       int(bbox_meta['y_max'])) for ind, bbox_meta in group.iterrows()]
             classes = group['Finding Label'].values
 
-            writer.process_image(img=img, bboxes=bboxes, classes=classes,
-                                 image_path=out_img_path, xml_path=out_xml_path)
+            writer.process_image(
+                img=img, bboxes=bboxes, classes=classes, image_path=out_img_path, xml_path=out_xml_path)
             ids.append(path_map[path].stem)
 
     random.seed(4815)
     random.shuffle(ids)
-    with open(image_sets_dir / 'train_nih.txt', "w") as ids_writer:
-         ids_writer.write("\n".join(ids))
+    with open(image_sets_dir / 'train_nih.txt', 'w') as ids_writer:
+        ids_writer.write('\n'.join(ids))

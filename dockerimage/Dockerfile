@@ -28,7 +28,7 @@ RUN apt-get update &&\
                        liblapack-dev \
                        graphviz \
                        libhdf5-dev \
-                       swig \ 
+                       swig \
                        python3-distutils &&\
     add-apt-repository -y ppa:deadsnakes/ppa &&\
     rm -rf /var/lib/apt/lists/*
@@ -42,8 +42,8 @@ RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py &&\
     rm get-pip.py &&\
     apt-get clean &&\
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-    
-RUN pip3 --no-cache-dir install numpy==1.19.1 
+
+RUN pip3 --no-cache-dir install numpy==1.19.1
 
 
 RUN apt-get update &&\
@@ -135,5 +135,3 @@ RUN pip --no-cache-dir install -r /tmp/requirements.txt
 RUN sed -i 's/\.jpg/\.png/g' /mmdetection/mmdet/datasets/xml_style.py
 
 WORKDIR /workdir
-
-
