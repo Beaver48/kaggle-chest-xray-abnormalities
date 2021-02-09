@@ -136,9 +136,7 @@ def filter_boxes_without_intersection(image_meta: Tuple[Path, List[ImageMeta]],
 
 
 # %%
-
 radiologists_confidence_map = calc_rad_confidence(images)
-
 
 # %%
 def create_pipeline(config: Dict[object, object]) -> Callable:
@@ -242,12 +240,13 @@ test.to_csv(Path(config['result_dir']) / 'test.csv')
 # %%
 gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=211288)
 for train_indecies, test_indecies in gss.split(train, train['class_name'], train['image_id']):
+    train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288)
     with open(image_sets_dir / 'train_vin.txt', 'w') as writer:
-        writer.write('\n'.join(train['image_id'][train_indecies].drop_duplicates().sample(frac=1).values))
+        writer.write('\n'.join(train['image_id'][train_indecies].drop_duplicates().sample(frac=1, random_state=211288).values))
     with open(image_sets_dir / 'val.txt', 'w') as writer:
-        writer.write('\n'.join(train['image_id'][test_indecies].drop_duplicates().sample(frac=1).values))
+        writer.write('\n'.join(train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288).values))
     with open(image_sets_dir / 'all_vin.txt', 'w') as writer:
-        writer.write('\n'.join(train['image_id'].drop_duplicates().sample(frac=1).values))
+        writer.write('\n'.join(train['image_id'].drop_duplicates().sample(frac=1, random_state=211288).values))
     with open(image_sets_dir / 'test.txt', 'w') as writer:
         writer.write('\n'.join(test['img_id'].apply(lambda x: x).values))
 
