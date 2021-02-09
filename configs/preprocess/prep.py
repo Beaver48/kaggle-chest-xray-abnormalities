@@ -1,3 +1,3 @@
-from kaggle.preprocess import GrayscaleTransform
+from kaggle.preprocess import EqualizeTransform
 
-preprocessor = GrayscaleTransform(None)
+preprocessor = EqualizeTransform()

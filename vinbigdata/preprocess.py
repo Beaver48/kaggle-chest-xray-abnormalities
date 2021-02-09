@@ -48,8 +48,8 @@ class EqualizeTransform(BaseTransform):
     """ Transformation with equalization
     """
 
-    def __init__(self) -> None:
-        self.clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+    def __init__(self, clahe_clip_limit: float = 4.0, clahe_grid: Tuple[int, int] = (8, 8)) -> None:
+        self.clahe = cv2.createCLAHE(clipLimit=clahe_clip_limit, tileGridSize=clahe_grid)
 
     def __call__(self, img: np.array, bboxes: List[Tuple[int, int, int,
                                                          int]]) -> Tuple[np.array, List[Tuple[int, int, int, int]]]:

@@ -1,24 +1,12 @@
 dataset_type = 'VOCDataset'
 data_root = 'data/processed/vin_dataVOC2012/'
 
-img_norm_cfg = dict(
-    mean=[128, 128, 128], std=[60, 60, 60], to_rgb=True)
+img_norm_cfg = dict(mean=[128, 128, 128], std=[60, 60, 60], to_rgb=True)
 
 albumentation_transforms = [
-    dict(
-        type='ShiftScaleRotate',
-        shift_limit=0.0625,
-        scale_limit=0.0,
-        rotate_limit=7,
-        p=0.5),
-    dict(
-        type='RandomBrightnessContrast',
-        brightness_limit=0.05,
-        contrast_limit=0.05,
-        p=0.33),
-    dict(
-        type='RandomGamma',
-        p=0.33)
+    dict(type='ShiftScaleRotate', shift_limit=0.0625, scale_limit=0.0, rotate_limit=7, p=0.5),
+    dict(type='RandomBrightnessContrast', brightness_limit=0.05, contrast_limit=0.05, p=0.33),
+    dict(type='RandomGamma', p=0.33)
 ]
 
 train_pipeline = [
@@ -41,15 +29,13 @@ train_pipeline = [
         },
         update_pad_shape=False,
         skip_img_without_anno=True),
-    dict(type='RandomFlip',
-         direction='horizontal',
-         flip_ratio=0.5),
+    dict(type='RandomFlip', direction='horizontal', flip_ratio=0.5),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='Pad', size_divisor=32),
     dict(type='DefaultFormatBundle'),
     dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels'])
 ]
-        
+
 test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
@@ -66,18 +52,16 @@ test_pipeline = [
         ])
 ]
 
-
-
-classes = ('Cardiomegaly', 'Aortic enlargement', 'Pleural thickening', 'ILD',
- 'Nodule/Mass', 'Pulmonary fibrosis', 'Lung Opacity', 'Atelectasis', 'Other lesion',
- 'Infiltration', 'Pleural effusion', 'Calcification', 'Consolidation', 'Pneumothorax')
+classes = ('Cardiomegaly', 'Aortic enlargement', 'Pleural thickening', 'ILD', 'Nodule/Mass', 'Pulmonary fibrosis',
+           'Lung Opacity', 'Atelectasis', 'Other lesion', 'Infiltration', 'Pleural effusion', 'Calcification',
+           'Consolidation', 'Pneumothorax')
 data = dict(
     samples_per_gpu=3,
     workers_per_gpu=4,
     train=dict(
         type=dataset_type,
         classes=classes,
-        ann_file=[ data_root + 'image_sets/train_nih.txt', data_root + 'image_sets/train_vin.txt'],
+        ann_file=[data_root + 'image_sets/train_nih.txt', data_root + 'image_sets/train_vin.txt'],
         img_prefix=data_root,
         filter_empty_gt=True,
         pipeline=train_pipeline),
@@ -92,5 +76,4 @@ data = dict(
         classes=classes,
         ann_file=data_root + 'image_sets/test.txt',
         img_prefix=data_root,
-        pipeline=test_pipeline)
-)
+        pipeline=test_pipeline))
