@@ -11,7 +11,7 @@ optimizer = dict(type='SGD', lr=0.005, momentum=0.9, weight_decay=1e-4)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 
 # learning policy
-lr_config = dict(policy='step', warmup='linear', warmup_iters=500, gamma=0.2, warmup_ratio=0.001, step=[25, 45])
+lr_config = dict(policy='step', warmup='linear', warmup_iters=500, gamma=0.2, warmup_ratio=0.001, step=[30, 45])
 total_epochs = 50
 
 evaluation = dict(interval=1, iou_thr=0.4)

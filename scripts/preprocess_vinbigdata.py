@@ -181,10 +181,12 @@ TrainMeta = TypedDict(
         'y_min': float,
         'y_max': float,
         'width': int,
-        'height': int
+        'height': int,
+        'original_width': int,
+        'original_height': int
     })
 
-TestMeta = TypedDict('TestMeta', {'img_id': str, 'width': int, 'height': int})
+TestMeta = TypedDict('TestMeta', {'img_id': str, 'width': int, 'height': int, 'original_width': int, 'original_height': int})
 
 
 def process_train(img_meta: Tuple[Path, ImageMeta], image_dir: Path, annotation_dir: Path,
@@ -202,10 +204,11 @@ def process_train(img_meta: Tuple[Path, ImageMeta], image_dir: Path, annotation_
               if meta['class_name'] != 'No finding']
     classes = [meta['class_name'] for meta in final_meta if meta['class_name'] != 'No finding']
 
-    writer.process_image(
+    new_shape = writer.process_image(
         img=img, bboxes=bboxes, classes=classes, image_path=processed_image_filename, xml_path=processed_xml_filename)
     for meta in final_meta:
-        meta['width'], meta['height'] = img_shape[1], img_shape[0]
+        meta['original_width'], meta['original_height'] = img_shape[1], img_shape[0]
+        meta['width'], meta['height'] = new_shape[1], new_shape[0]
     return final_meta
 
 
@@ -215,10 +218,11 @@ def process_test(origin_image_filename: Path, image_dir: Path, annotation_dir: P
     img = read_dicom_img(str(origin_image_filename))
     img_shape = img.shape
 
-    writer.process_image(
+    new_shape = writer.process_image(
         img=img, bboxes=[], classes=[], image_path=processed_image_filename, xml_path=processed_xml_filename)
 
-    return {'img_id': processed_image_filename.stem, 'width': img_shape[1], 'height': img_shape[0]}
+    return {'img_id': processed_image_filename.stem, 'original_width': img_shape[1], 'original_height': img_shape[0], 
+            'width': new_shape[1], 'height': new_shape[0]}
 
 
 # %%
