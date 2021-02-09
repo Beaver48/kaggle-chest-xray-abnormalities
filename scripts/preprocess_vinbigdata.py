@@ -1,5 +1,4 @@
 # %%
-import copy
 import glob
 from collections import defaultdict
 from itertools import groupby
@@ -9,16 +8,15 @@ from typing import Callable, Dict, List, Tuple
 import cv2
 import joblib
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from ensemble_boxes import nms
-from kaggle.preprocess import ImgWriter, read_dicom_img
-from kaggle.utils import (add_bboxes, compute_area, compute_intersection_area, compute_union_area, create_voc_dirs,
-                          is_interactive)
 from mmcv import Config
 from sklearn.model_selection import GroupShuffleSplit
 from tqdm import tqdm
 from typing_extensions import TypedDict
+from vinbigdata.preprocess import ImageMeta, ImgWriter, create_voc_dirs, read_dicom_img
+from vinbigdata.utils import compute_area, compute_intersection_area, compute_union_area, is_interactive
+from vinbigdata.visualize import visualize_label_suppression
 
 # %%
 config = Config.fromfile('configs/preprocess/vin.py')['config']
@@ -29,15 +27,49 @@ images = []
 for k, g in groupby(train_data.sort_values('file_name').to_dict(orient='records'), lambda x: x['file_name']):
     images.append((k, sorted(list(g), key=lambda x: (x['class_id'], x['rad_id']))))
 
-ImageMeta = TypedDict('ImageMeta', {
-    'image_id': str,
-    'class_name': str,
-    'rad_id': str,
-    'x_min': int,
-    'y_min': int,
-    'x_max': int,
-    'y_max': int
-})
+
+# %%
+def consolidate_radiologists(img_meta: List[ImageMeta],
+                             rad_confidence: Dict[str, float],
+                             img_shape: Tuple[int, int],
+                             iou_threshold: float = 0.15) -> List[ImageMeta]:
+    new_meta = []
+    image_id = img_meta[0]['image_id']
+    for class_name, g in groupby(sorted(img_meta, key=lambda x: x['class_name']), lambda x: x['class_name']):
+        bboxes_mt = list(g)
+        if class_name == 'No finding':
+            if len(bboxes_mt) == len(img_meta):
+                bbox = ImageMeta({
+                    'image_id': image_id,
+                    'class_name': class_name,
+                    'rad_id': None,
+                    'x_min': bboxes_mt[0]['x_min'],
+                    'y_min': bboxes_mt[0]['y_min'],
+                    'x_max': bboxes_mt[0]['x_max'],
+                    'y_max': bboxes_mt[0]['y_max']
+                })
+                new_meta.append(bbox)
+            continue
+        bboxes = [[[
+            bboxes_mt[i]['x_min'] / img_shape[1], bboxes_mt[i]['y_min'] / img_shape[0],
+            bboxes_mt[i]['x_max'] / img_shape[1], bboxes_mt[i]['y_max'] / img_shape[0]
+        ] for i in range(len(bboxes_mt))]]
+        scores = [[rad_confidence[bboxes_mt[i]['rad_id']] * 2 for i in range(len(bboxes_mt))]]
+        labels = [[1 for i in range(len(bboxes_mt))]]
+        boxes_final, _, _ = nms(bboxes, scores, labels, iou_thr=iou_threshold)
+
+        for processed_bbox in boxes_final:
+            bbox = ImageMeta({
+                'image_id': image_id,
+                'class_name': class_name,
+                'rad_id': None,
+                'x_min': processed_bbox[0] * img_shape[1],
+                'y_min': processed_bbox[1] * img_shape[0],
+                'x_max': processed_bbox[2] * img_shape[1],
+                'y_max': processed_bbox[3] * img_shape[0]
+            })
+            new_meta.append(bbox)
+    return new_meta
 
 
 def calc_rad_confidence(image_metas: List[Tuple[Path, List[ImageMeta]]],
@@ -103,72 +135,9 @@ def filter_boxes_without_intersection(image_meta: Tuple[Path, List[ImageMeta]],
     return (img_path, filtered_image_meta)
 
 
+# %%
+
 radiologists_confidence_map = calc_rad_confidence(images)
-
-
-def consolidate_radiologists(img_meta: List[ImageMeta],
-                             rad_confidence: Dict[str, float],
-                             img_shape: Tuple[int, int],
-                             iou_threshold: float = 0.15) -> List[ImageMeta]:
-    new_meta = []
-    image_id = img_meta[0]['image_id']
-    for class_name, g in groupby(sorted(img_meta, key=lambda x: x['class_name']), lambda x: x['class_name']):
-        bboxes_mt = list(g)
-        if class_name == 'No finding':
-            if len(bboxes_mt) == len(img_meta):
-                bbox = {
-                    'image_id': image_id,
-                    'class_name': class_name,
-                    'x_min': bboxes_mt[0]['x_min'],
-                    'y_min': bboxes_mt[0]['y_min'],
-                    'x_max': bboxes_mt[0]['x_max'],
-                    'y_max': bboxes_mt[0]['y_max']
-                }
-                new_meta.append(bbox)
-            continue
-        bboxes = [[[
-            bboxes_mt[i]['x_min'] / img_shape[1], bboxes_mt[i]['y_min'] / img_shape[0],
-            bboxes_mt[i]['x_max'] / img_shape[1], bboxes_mt[i]['y_max'] / img_shape[0]
-        ] for i in range(len(bboxes_mt))]]
-        scores = [[rad_confidence[bboxes_mt[i]['rad_id']] * 2 for i in range(len(bboxes_mt))]]
-        labels = [[1 for i in range(len(bboxes_mt))]]
-        boxes_final, _, _ = nms(bboxes, scores, labels, iou_thr=iou_threshold)
-
-        for processed_bbox in boxes_final:
-            bbox = {
-                'image_id': image_id,
-                'class_name': class_name,
-                'x_min': processed_bbox[0] * img_shape[1],
-                'y_min': processed_bbox[1] * img_shape[0],
-                'x_max': processed_bbox[2] * img_shape[1],
-                'y_max': processed_bbox[3] * img_shape[0]
-            }
-            new_meta.append(bbox)
-    return new_meta
-
-
-# %%
-def convert_bboxmeta2arrays(
-        bbox_metas: List[ImageMeta]) -> Tuple[List[Tuple[int, int, int, int]], List[float], List[str]]:
-    bboxes = [(bbox_meta['x_min'], bbox_meta['y_min'], bbox_meta['x_max'], bbox_meta['y_max'])
-              for bbox_meta in bbox_metas if bbox_meta['class_name'] != 'No finding']
-    labels = [bbox_meta['class_name'] for bbox_meta in bbox_metas if bbox_meta['class_name'] != 'No finding']
-    scores = [1.0 for _ in range(len(bboxes))]
-    return (bboxes, scores, labels)
-
-
-# %%
-def visualize_label_suppression(img: np.array, bbox_set1: List[ImageMeta], bbox_set2: List[ImageMeta]) -> None:
-    bboxes, scores, labels = convert_bboxmeta2arrays(bbox_set1)
-    img1 = add_bboxes(copy.deepcopy(img), bboxes, scores, labels)
-
-    bboxes, scores, labels = convert_bboxmeta2arrays(bbox_set2)
-    img2 = add_bboxes(copy.deepcopy(img), bboxes, scores, labels)
-    fig = plt.figure(figsize=(28, 28))
-    fig.add_subplot(1, 2, 1)
-    plt.imshow(img1)
-    fig.add_subplot(1, 2, 2)
-    plt.imshow(img2)
 
 
 # %%
@@ -216,10 +185,6 @@ TrainMeta = TypedDict(
     })
 
 TestMeta = TypedDict('TestMeta', {'img_id': str, 'width': int, 'height': int})
-
-
-def resize(img: np.array, max_size: Tuple[int, int]) -> np.array:
-    return cv2.resize(img, max_size, interpolation=cv2.INTER_LANCZOS4)
 
 
 def process_train(img_meta: Tuple[Path, ImageMeta], image_dir: Path, annotation_dir: Path,

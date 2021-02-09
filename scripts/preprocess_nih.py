@@ -1,15 +1,12 @@
-#!/usr/bin/env python
-
 import glob
 import random
 from pathlib import Path
 
 import cv2
 import pandas as pd
-from kaggle.preprocess import ImgWriter
-from kaggle.utils import create_voc_dirs
 from mmcv import Config
 from tqdm import tqdm
+from vinbigdata.preprocess import ImgWriter, create_voc_dirs
 
 config = Config.fromfile('configs/preprocess/nih.py')['config']
 
@@ -42,7 +39,7 @@ for path, group in tqdm(data.groupby('Image Index')):
     out_img_path = images_dir / img_path.name
     out_xml_path = annotations_dir / (img_path.stem + '.xml')
 
-    img = cv2.imread(str(img_path))
+    img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2GRAY)
     if img is not None:
         bboxes = [(int(bbox_meta['x_min']), int(bbox_meta['y_min']), int(bbox_meta['x_max']), int(bbox_meta['y_max']))
                   for ind, bbox_meta in group.iterrows()]
