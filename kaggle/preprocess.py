@@ -1,14 +1,17 @@
-import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
 from pascal_voc_writer import Writer
+from pydicom import dcmread
+from pydicom.pixel_data_handlers.util import apply_voi_lut
 
 
 class ImageTransform(ABC):
+    """ Basic transformation
+    """
 
     def __init__(self, config: Dict[object, object]):
         self.config = config
@@ -20,6 +23,8 @@ class ImageTransform(ABC):
 
 
 class GrayscaleTransform(ImageTransform):
+    """ Transformation for grayscale
+    """
 
     def __init__(self, config: Dict[object, object]):
         super(GrayscaleTransform, self).__init__(config)
@@ -30,6 +35,8 @@ class GrayscaleTransform(ImageTransform):
 
 
 class ImgWriter(object):
+    """ Class for writing preprocessed data in PASCALVOC 2012 format
+    """
 
     def __init__(self, image_prepocessor: ImageTransform):
         self.image_prepocessor = image_prepocessor
@@ -49,3 +56,18 @@ class ImgWriter(object):
                     continue
                 writer.addObject(class_name, int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))
         writer.save(xml_path)
+
+
+def read_dicom_img(path: str, apply_voi: bool = True) -> np.array:
+    dicom_data = dcmread(path)
+    if apply_voi:
+        img_data = apply_voi_lut(dicom_data.pixel_array, dicom_data)
+    else:
+        img_data = dicom_data.pixel_array
+
+    if dicom_data.PhotometricInterpretation == 'MONOCHROME1':
+        img_data = np.amax(img_data) - img_data
+    img_data = img_data - np.min(img_data)
+    img_data = img_data / np.max(img_data)
+    img_data = (img_data * 256).astype(np.uint8)
+    return img_data

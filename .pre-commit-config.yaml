@@ -15,12 +15,19 @@ repos:
     rev: v0.29.0
     hooks:
       - id: yapf
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: 'v0.800'
+    hooks:
+      - id: mypy
+        args: [--no-strict-optional, --ignore-missing-imports]
   - repo: https://github.com/pre-commit/mirrors-pylint
     rev: v2.5.2
     hooks:
     -   id: pylint
         args:
         - --max-line-length=120
+        - --max-locals=20
+        - --max-args=8
         - --ignore-imports=yes
         - -d E0401,C0114,C0116,C0103,W0105,R0903
   - repo: https://github.com/pre-commit/pre-commit-hooks
