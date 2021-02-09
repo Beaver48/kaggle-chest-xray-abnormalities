@@ -1,3 +1,3 @@
-from kaggle.preprocess import EqualizeTransform
+from vinbigdata.preprocess import EqualizeTransform
 
 preprocessor = EqualizeTransform()

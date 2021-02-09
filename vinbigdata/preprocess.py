@@ -49,15 +49,17 @@ class EqualizeTransform(BaseTransform):
     """
 
     def __init__(self, clahe_clip_limit: float = 4.0, clahe_grid: Tuple[int, int] = (8, 8)) -> None:
-        self.clahe = cv2.createCLAHE(clipLimit=clahe_clip_limit, tileGridSize=clahe_grid)
+        self.clahe_clip_limit = clahe_clip_limit
+        self.clahe_grid = clahe_grid
 
     def __call__(self, img: np.array, bboxes: List[Tuple[int, int, int,
                                                          int]]) -> Tuple[np.array, List[Tuple[int, int, int, int]]]:
         assert len(img.shape) == 2
+        clahe = cv2.createCLAHE(clipLimit=self.clahe_clip_limit, tileGridSize=self.clahe_grid)
         img = np.concatenate(
             [img[:, :, np.newaxis],
              cv2.equalizeHist(img)[:, :, np.newaxis],
-             self.clahe.apply(img)[:, :, np.newaxis]],
+             clahe.apply(img)[:, :, np.newaxis]],
             axis=2)
         return img, bboxes
 
