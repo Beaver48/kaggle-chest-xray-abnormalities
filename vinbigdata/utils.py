@@ -1,8 +1,9 @@
-from typing import Tuple
+from typing import Tuple, List, Dict
 
 import cv2
 import numba
 import numpy as np
+
 
 
 def is_interactive():
@@ -47,3 +48,43 @@ def compute_union_area(bbox1: Tuple[int, int, int, int], bbox2: Tuple[int, int, 
 
 def resize(img: np.array, max_size: Tuple[int, int]) -> np.array:
     return cv2.resize(img, max_size, interpolation=cv2.INTER_LANCZOS4)
+
+
+@numba.jit
+def rel2abs(box: Tuple[float, float, float, float],
+            img_shape: Tuple[int, int]) -> Tuple[float, float, float, float]:
+    return (box[0] * img_shape[0], 
+              box[1] * img_shape[1], 
+               box[2] * img_shape[0], 
+               box[3] * img_shape[1])
+
+@numba.jit
+def abs2rel(box: Tuple[float, float, float, float],
+                     img_shape: Tuple[int, int]
+                    ) -> Tuple[float, float, float, float]:
+    return(box[0] / img_shape[0], 
+              box[1] / img_shape[1], 
+               box[2] / img_shape[0], 
+               box[3] / img_shape[1])
+
+
+def convert_mmdet2arrays(bboxes:List[List[Tuple[float, float, float, float, float]]], 
+                         img_shape: Tuple[int, int])  -> Tuple[List[Tuple[float, float, float, float]], List[float], List[str]]:
+    boxes, scores, labels = [], [], []
+    for class_id, class_bboxes in enumerate(bboxes):
+        for bbox in class_bboxes:
+            boxes.append(abs2rel(bbox, img_shape))
+            scores.append(bbox[4])
+            labels.append(mmdet2class[class_id])
+    return (boxes, scores, labels)
+
+def convert_array2mmdet(boxes:List[Tuple[float, float, float, float]], 
+                        scores:List[float], 
+                        labels:List[str], 
+                        num_classes=15) -> List[List[Tuple[float, float, float, float, float]]]:
+    result = [[] for _ in range(num_classes)]
+    for box, score, label in zip(boxes, scores, labels):
+        result[class2mmdet[label]].append(np.array([*box, score]))
+    result = [np.array(res) if len(res) > 0 else np.zeros((0,5)) for res in result]
+    
+    return result
