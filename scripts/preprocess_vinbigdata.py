@@ -138,6 +138,7 @@ def filter_boxes_without_intersection(image_meta: Tuple[Path, List[ImageMeta]],
 # %%
 radiologists_confidence_map = calc_rad_confidence(images)
 
+
 # %%
 def create_pipeline(config: Dict[object, object]) -> Callable:
 
@@ -184,7 +185,13 @@ TrainMeta = TypedDict(
         'original_height': int
     })
 
-TestMeta = TypedDict('TestMeta', {'img_id': str, 'width': int, 'height': int, 'original_width': int, 'original_height': int})
+TestMeta = TypedDict('TestMeta', {
+    'img_id': str,
+    'width': int,
+    'height': int,
+    'original_width': int,
+    'original_height': int
+})
 
 
 def process_train(img_meta: Tuple[Path, ImageMeta], image_dir: Path, annotation_dir: Path,
@@ -219,8 +226,13 @@ def process_test(origin_image_filename: Path, image_dir: Path, annotation_dir: P
     new_shape = writer.process_image(
         img=img, bboxes=[], classes=[], image_path=processed_image_filename, xml_path=processed_xml_filename)
 
-    return {'img_id': processed_image_filename.stem, 'original_width': img_shape[1], 'original_height': img_shape[0], 
-            'width': new_shape[1], 'height': new_shape[0]}
+    return {
+        'img_id': processed_image_filename.stem,
+        'original_width': img_shape[1],
+        'original_height': img_shape[0],
+        'width': new_shape[1],
+        'height': new_shape[0]
+    }
 
 
 # %%
@@ -242,9 +254,11 @@ gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=211288)
 for train_indecies, test_indecies in gss.split(train, train['class_name'], train['image_id']):
     train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288)
     with open(image_sets_dir / 'train_vin.txt', 'w') as writer:
-        writer.write('\n'.join(train['image_id'][train_indecies].drop_duplicates().sample(frac=1, random_state=211288).values))
+        writer.write('\n'.join(train['image_id'][train_indecies].drop_duplicates().sample(frac=1,
+                                                                                          random_state=211288).values))
     with open(image_sets_dir / 'val.txt', 'w') as writer:
-        writer.write('\n'.join(train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288).values))
+        writer.write('\n'.join(train['image_id'][test_indecies].drop_duplicates().sample(frac=1,
+                                                                                         random_state=211288).values))
     with open(image_sets_dir / 'all_vin.txt', 'w') as writer:
         writer.write('\n'.join(train['image_id'].drop_duplicates().sample(frac=1, random_state=211288).values))
     with open(image_sets_dir / 'test.txt', 'w') as writer:

@@ -5,11 +5,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
+from albumentations import BboxParams, Compose, Resize
 from pascal_voc_writer import Writer
 from pydicom import dcmread
 from pydicom.pixel_data_handlers.util import apply_voi_lut
 from typing_extensions import TypedDict
-from albumentations import Resize, BboxParams, Compose
+from vinbigdata import BoxCoordsInt
 
 ImageMeta = TypedDict('ImageMeta', {
     'image_id': str,
@@ -30,8 +31,8 @@ class BaseTransform(ABC):
         self.config = config
 
     @abstractmethod
-    def __call__(self, img: np.array, classes: List[str], bboxes: List[Tuple[int, int, int,
-                                                         int]]) -> Tuple[np.array, List[Tuple[int, int, int, int]]]:
+    def __call__(self, img: np.array, bboxes: List[BoxCoordsInt],
+                 classes: List[str]) -> Tuple[np.array, List[BoxCoordsInt], List[str]]:
         raise NotImplementedError('call method not implemented')
 
 
@@ -39,26 +40,30 @@ class GrayscaleTransform(BaseTransform):
     """ Transformation for grayscale
     """
 
-    def __call__(self, img: np.array, bboxes: List[Tuple[int, int, int,
-                                                         int]], classes: List[str]) -> Tuple[np.array, List[Tuple[int, int, int, int]], List[str]]:
+    def __call__(self, img: np.array, bboxes: List[BoxCoordsInt],
+                 classes: List[str]) -> Tuple[np.array, List[BoxCoordsInt], List[str]]:
         assert len(img.shape) == 2
-        return img, bboxes, 
+        return (img, bboxes, classes)
 
 
 class EqualizeTransform(BaseTransform):
     """ Transformation with equalization
     """
 
-    def __init__(self, clahe_clip_limit: float = 4.0, 
-                 clahe_grid: Tuple[int, int] = (8, 8), 
-                 fized_size:Tuple[int, int] = (1024, 1024)) -> None:
+    def __init__(
+        self,
+        clahe_clip_limit: float = 4.0,
+        clahe_grid: Tuple[int, int] = (8, 8),
+        fized_size: Tuple[int, int] = (1024, 1024)
+    ) -> None:
         self.clahe_clip_limit = clahe_clip_limit
         self.clahe_grid = clahe_grid
         self.resize_transform = Compose([Resize(fized_size[0], fized_size[0], always_apply=True)],
-                                        bbox_params=BboxParams(format='pascal_voc', min_visibility=0.0, label_fields=['classes']))
+                                        bbox_params=BboxParams(
+                                            format='pascal_voc', min_visibility=0.0, label_fields=['classes']))
 
-    def __call__(self, img: np.array, bboxes: List[Tuple[int, int, int,
-                                                         int]], classes: List[str]) -> Tuple[np.array, List[Tuple[int, int, int, int]], List[str]]:
+    def __call__(self, img: np.array, bboxes: List[BoxCoordsInt],
+                 classes: List[str]) -> Tuple[np.array, List[BoxCoordsInt], List[str]]:
         assert len(img.shape) == 2
         clahe = cv2.createCLAHE(clipLimit=self.clahe_clip_limit, tileGridSize=self.clahe_grid)
         img = np.concatenate(
@@ -77,14 +82,14 @@ class ImgWriter:
     def __init__(self, image_prepocessor: BaseTransform) -> None:
         self.image_prepocessor = image_prepocessor
 
-    def process_image(self, img: np.array, bboxes: List[Tuple[int, int, int, int]], classes: List[str],
-                      image_path: Path, xml_path: Path) -> Tuple[int, int]:
+    def process_image(self, img: np.array, bboxes: List[BoxCoordsInt], classes: List[str], image_path: Path,
+                      xml_path: Path) -> Tuple[int, int]:
         img, bboxes, classes = self.image_prepocessor(img, bboxes, classes)
         cv2.imwrite(str(image_path), img)
         self.write_xml(xml_path, image_path, bboxes, classes, img.shape[0:2])
         return img.shape
 
-    def write_xml(self, xml_path: Path, image_path: Path, bboxes: List[Tuple[int, int, int, int]], classes: List[str],
+    def write_xml(self, xml_path: Path, image_path: Path, bboxes: List[BoxCoordsInt], classes: List[str],
                   img_shape: Tuple[int, int]) -> None:
         writer = Writer(image_path, img_shape[1], img_shape[0])
         if bboxes is not None:
@@ -124,8 +129,7 @@ def create_voc_dirs(data_dir: str, clear: bool = False) -> Tuple[Path, Path, Pat
     return (annotations, images, image_sets)
 
 
-def convert_bboxmeta2arrays(
-        bbox_metas: List[ImageMeta]) -> Tuple[List[Tuple[int, int, int, int]], List[float], List[str]]:
+def convert_bboxmeta2arrays(bbox_metas: List[ImageMeta]) -> Tuple[List[BoxCoordsInt], List[float], List[str]]:
     bboxes = [(bbox_meta['x_min'], bbox_meta['y_min'], bbox_meta['x_max'], bbox_meta['y_max'])
               for bbox_meta in bbox_metas if bbox_meta['class_name'] != 'No finding']
     labels = [bbox_meta['class_name'] for bbox_meta in bbox_metas if bbox_meta['class_name'] != 'No finding']

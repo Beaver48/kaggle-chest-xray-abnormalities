@@ -56,7 +56,7 @@ classes = ('Cardiomegaly', 'Aortic enlargement', 'Pleural thickening', 'ILD', 'N
            'Lung Opacity', 'Atelectasis', 'Other lesion', 'Infiltration', 'Pleural effusion', 'Calcification',
            'Consolidation', 'Pneumothorax')
 data = dict(
-    samples_per_gpu=2,
+    samples_per_gpu=3,
     workers_per_gpu=4,
     train=dict(
         type=dataset_type,
