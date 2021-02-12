@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
+import glob
+from pathlib import Path
 from albumentations import BboxParams, Compose, Resize
 from pascal_voc_writer import Writer
 from pydicom import dcmread
@@ -27,11 +29,13 @@ class BaseTransform(ABC):
     """ Base transformation
     """
 
-    def __init__(self, config: Dict[Any, Any]) -> None:
-        self.config = config
+    def __init__(self, fized_size: Tuple[int, int]) -> None:
+        self.resize_transform = Compose([Resize(fized_size[0], fized_size[0], always_apply=True)],
+                                        bbox_params=BboxParams(
+                                            format='pascal_voc', min_visibility=0.0, label_fields=['classes']))
 
     @abstractmethod
-    def __call__(self, img: np.array, bboxes: List[BoxCoordsInt],
+    def __call__(self, img_name:str, img: np.array, bboxes: List[BoxCoordsInt],
                  classes: List[str]) -> Tuple[np.array, List[BoxCoordsInt], List[str]]:
         raise NotImplementedError('call method not implemented')
 
@@ -39,12 +43,41 @@ class BaseTransform(ABC):
 class GrayscaleTransform(BaseTransform):
     """ Transformation for grayscale
     """
-
-    def __call__(self, img: np.array, bboxes: List[BoxCoordsInt],
+    def __init__(self, fized_size: Tuple[int, int] = (1024, 1024))-> None:
+        super(GrayscaleTransform, self).__init__(fized_size)
+    def __call__(self, img_name:str, 
+                 img: np.array, bboxes: List[BoxCoordsInt],
                  classes: List[str]) -> Tuple[np.array, List[BoxCoordsInt], List[str]]:
         assert len(img.shape) == 2
-        return (img, bboxes, classes)
+        res = self.resize_transform(image=cv2.cvtColor(img, cv2.COLOR_GRAY2RGB),
+                                    bboxes=bboxes, 
+                                    classes=classes)
+        return (res['image'], res['bboxes'], res['classes'])
 
+class MaskTransform(BaseTransform):
+    """ Transformation for grayscale
+    """
+    def __init__(self, mask_path: str,
+                 fized_size:Tuple[int, int] = (1024, 1024)) -> None:
+        super(MaskTransform, self).__init__(fized_size)
+        self.masks = {Path(mask).name: mask for mask in glob.glob(mask_path + "/*")}
+        
+    def __call__(self, 
+                 img_name:str, 
+                 img: np.array, 
+                 bboxes: List[BoxCoordsInt],
+                 classes: List[str]) -> Tuple[np.array, List[BoxCoordsInt], List[str]]:
+        mask = cv2.resize(cv2.imread(self.masks[Path(img_name).name]),
+                          (img.shape[1], img.shape[0]), 
+                           interpolation=cv2.INTER_LANCZOS4)[:,:,0]
+        assert len(mask.shape) == 2
+        img = np.concatenate(
+            [img[:, :, np.newaxis],
+             img[:, :, np.newaxis],
+             mask[:, :, np.newaxis]], axis=2)
+        res = self.resize_transform(image=img, bboxes=bboxes, classes=classes)
+        assert len(img.shape) == 3
+        return (res['image'], res['bboxes'], res['classes'])
 
 class EqualizeTransform(BaseTransform):
     """ Transformation with equalization
@@ -56,13 +89,11 @@ class EqualizeTransform(BaseTransform):
         clahe_grid: Tuple[int, int] = (8, 8),
         fized_size: Tuple[int, int] = (1024, 1024)
     ) -> None:
+        super(EqualizeTransform, self).__init__(fized_size)
         self.clahe_clip_limit = clahe_clip_limit
         self.clahe_grid = clahe_grid
-        self.resize_transform = Compose([Resize(fized_size[0], fized_size[0], always_apply=True)],
-                                        bbox_params=BboxParams(
-                                            format='pascal_voc', min_visibility=0.0, label_fields=['classes']))
 
-    def __call__(self, img: np.array, bboxes: List[BoxCoordsInt],
+    def __call__(self, img_name:str, img: np.array, bboxes: List[BoxCoordsInt],
                  classes: List[str]) -> Tuple[np.array, List[BoxCoordsInt], List[str]]:
         assert len(img.shape) == 2
         clahe = cv2.createCLAHE(clipLimit=self.clahe_clip_limit, tileGridSize=self.clahe_grid)
@@ -84,7 +115,7 @@ class ImgWriter:
 
     def process_image(self, img: np.array, bboxes: List[BoxCoordsInt], classes: List[str], image_path: Path,
                       xml_path: Path) -> Tuple[int, int]:
-        img, bboxes, classes = self.image_prepocessor(img, bboxes, classes)
+        img, bboxes, classes = self.image_prepocessor(image_path.name, img, bboxes, classes)
         cv2.imwrite(str(image_path), img)
         self.write_xml(xml_path, image_path, bboxes, classes, img.shape[0:2])
         return img.shape

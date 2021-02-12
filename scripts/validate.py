@@ -7,9 +7,11 @@ from IPython import get_ipython
 from mmcv import Config
 from vinbigdata.postprocess import nms_models, normal_by_boxes
 from vinbigdata.testing import batch_inference, calc_measure, generate_gt_boxes, predict_boxes
+from vinbigdata.utils import is_interactive
 
-get_ipython().magic('load_ext autoreload')
-get_ipython().magic('autoreload 2')
+if is_interactive():
+    get_ipython().magic('load_ext autoreload')
+    get_ipython().magic('autoreload 2')
 
 # %%
 config = Config.fromfile('configs/postprocess/postprocess.py')['config']

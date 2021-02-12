@@ -1,3 +1,3 @@
-from vinbigdata.preprocess import EqualizeTransform
+from vinbigdata.preprocess import GrayscaleTransform
 
-preprocessor = EqualizeTransform()
+preprocessor = GrayscaleTransform()
