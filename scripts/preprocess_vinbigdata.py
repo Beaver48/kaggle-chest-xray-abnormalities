@@ -1,5 +1,6 @@
 # %%
 import glob
+import os
 from collections import defaultdict
 from itertools import groupby
 from pathlib import Path
@@ -14,7 +15,7 @@ from mmcv import Config
 from sklearn.model_selection import GroupShuffleSplit
 from tqdm import tqdm
 from typing_extensions import TypedDict
-from vinbigdata.preprocess import ImageMeta, ImgWriter, create_voc_dirs, read_dicom_img
+from vinbigdata.preprocess import BaseWriter, ImageMeta, ScaledYoloWriter, VocWriter, read_dicom_img
 from vinbigdata.utils import compute_area, compute_intersection_area, compute_union_area, is_interactive
 from vinbigdata.visualize import visualize_label_suppression
 
@@ -35,8 +36,8 @@ def consolidate_radiologists(img_meta: List[ImageMeta],
                              iou_threshold: float = 0.15) -> List[ImageMeta]:
     new_meta = []
     image_id = img_meta[0]['image_id']
-    for class_name, g in groupby(sorted(img_meta, key=lambda x: x['class_name']), lambda x: x['class_name']):
-        bboxes_mt = list(g)
+    for class_name, group in groupby(sorted(img_meta, key=lambda x: x['class_name']), lambda x: x['class_name']):
+        bboxes_mt = list(group)
         if class_name == 'No finding':
             if len(bboxes_mt) == len(img_meta):
                 bbox = ImageMeta({
@@ -140,11 +141,11 @@ radiologists_confidence_map = calc_rad_confidence(images)
 
 
 # %%
-def create_pipeline(config: Dict[object, object]) -> Callable:
+def create_pipeline(cfg: Dict[object, object]) -> Callable:
 
     def filter_meta(meta: Tuple[Path, List[ImageMeta]], img_shape: Tuple[int, int],
                     radiologists_confidence: Dict[str, float]) -> List[ImageMeta]:
-        if config['aggree_rad']:
+        if cfg['aggree_rad']:
             filtered_meta = filter_boxes_without_intersection(meta)[1]
         else:
             filtered_meta = meta[1]
@@ -162,7 +163,7 @@ pipeline_func = create_pipeline(config)
 if is_interactive() and config['visualize']:
     for meta in images[0:50]:
         met = [m for m in meta[1] if m['class_name'] != 'No finding']
-        if len(met):
+        if len(met) > 0:
             img = cv2.cvtColor(read_dicom_img(str(meta[0])), cv2.COLOR_GRAY2RGB)
             filtered_meta = pipeline_func(meta, img.shape, radiologists_confidence_map)
             if filtered_meta is not None:
@@ -194,11 +195,9 @@ TestMeta = TypedDict('TestMeta', {
 })
 
 
-def process_train(img_meta: Tuple[Path, ImageMeta], image_dir: Path, annotation_dir: Path,
-                  radiologists_confidence: Dict[str, float], writer: ImgWriter) -> TrainMeta:
+def process_train(img_meta: Tuple[Path, ImageMeta], radiologists_confidence: Dict[str, float],
+                  writers: List[BaseWriter]) -> TrainMeta:
     origin_image_filename = img_meta[0]
-    processed_image_filename = image_dir / (origin_image_filename.stem + '.png')
-    processed_xml_filename = annotation_dir / (origin_image_filename.stem + '.xml')
     img = read_dicom_img(str(origin_image_filename))
     img_shape = img.shape
 
@@ -208,26 +207,23 @@ def process_train(img_meta: Tuple[Path, ImageMeta], image_dir: Path, annotation_
     bboxes = [(meta['x_min'], meta['y_min'], meta['x_max'], meta['y_max']) for meta in final_meta
               if meta['class_name'] != 'No finding']
     classes = [meta['class_name'] for meta in final_meta if meta['class_name'] != 'No finding']
-
-    new_shape = writer.process_image(
-        img=img, bboxes=bboxes, classes=classes, image_path=processed_image_filename, xml_path=processed_xml_filename)
+    for writer in writers:
+        new_shape = writer.process_image(
+            img_name=origin_image_filename.stem + '.png', img=img, bboxes=bboxes, classes=classes)
     for meta in final_meta:
         meta['original_width'], meta['original_height'] = img_shape[1], img_shape[0]
         meta['width'], meta['height'] = new_shape[1], new_shape[0]
     return final_meta
 
 
-def process_test(origin_image_filename: Path, image_dir: Path, annotation_dir: Path, writer: ImgWriter) -> TestMeta:
-    processed_image_filename = image_dir / (origin_image_filename.stem + '.png')
-    processed_xml_filename = annotation_dir / (origin_image_filename.stem + '.xml')
+def process_test(origin_image_filename: Path, writers: List[BaseWriter]) -> TestMeta:
     img = read_dicom_img(str(origin_image_filename))
     img_shape = img.shape
-
-    new_shape = writer.process_image(
-        img=img, bboxes=[], classes=[], image_path=processed_image_filename, xml_path=processed_xml_filename)
+    for writer in writers:
+        new_shape = writer.process_image(img_name=origin_image_filename.stem + '.png', img=img, bboxes=[], classes=[])
 
     return {
-        'img_id': processed_image_filename.stem,
+        'img_id': origin_image_filename.stem,
         'original_width': img_shape[1],
         'original_height': img_shape[0],
         'width': new_shape[1],
@@ -236,13 +232,15 @@ def process_test(origin_image_filename: Path, image_dir: Path, annotation_dir: P
 
 
 # %%
-annotations_dir, images_dir, image_sets_dir = create_voc_dirs(config['result_dir'], clear=config['clear'])
-img_writer = ImgWriter(config['preprocessor'])
+
+img_writers = [
+    VocWriter(config['result_dir'], config['clear'], config['preprocessor']),
+    ScaledYoloWriter(config['result_dir'], False, config['preprocessor'])
+]
 train = joblib.Parallel(n_jobs=-1)(
-    joblib.delayed(lambda x: process_train(x, images_dir, annotations_dir, radiologists_confidence_map, img_writer))(
-        dat) for dat in tqdm(images))
+    joblib.delayed(lambda x: process_train(x, radiologists_confidence_map, img_writers))(dat) for dat in tqdm(images))
 test = joblib.Parallel(n_jobs=-1)(
-    joblib.delayed(lambda img_path: process_test(Path(img_path), images_dir, annotations_dir, img_writer))(img_path)
+    joblib.delayed(lambda img_path: process_test(Path(img_path), img_writers))(img_path)
     for img_path in tqdm(glob.glob(str(Path(config['test_images_dir']) / '*'))))
 train = pd.DataFrame.from_records([item for sublist in train if sublist is not None for item in sublist])
 train.to_csv(Path(config['result_dir']) / 'train.csv')
@@ -251,17 +249,19 @@ test.to_csv(Path(config['result_dir']) / 'test.csv')
 
 # %%
 gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=211288)
-for train_indecies, test_indecies in gss.split(train, train['class_name'], train['image_id']):
-    train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288)
-    with open(image_sets_dir / 'train_vin.txt', 'w') as writer:
-        writer.write('\n'.join(train['image_id'][train_indecies].drop_duplicates().sample(frac=1,
-                                                                                          random_state=211288).values))
-    with open(image_sets_dir / 'val.txt', 'w') as writer:
-        writer.write('\n'.join(train['image_id'][test_indecies].drop_duplicates().sample(frac=1,
-                                                                                         random_state=211288).values))
-    with open(image_sets_dir / 'all_vin.txt', 'w') as writer:
-        writer.write('\n'.join(train['image_id'].drop_duplicates().sample(frac=1, random_state=211288).values))
-    with open(image_sets_dir / 'test.txt', 'w') as writer:
-        writer.write('\n'.join(test['img_id'].apply(lambda x: x).values))
+train_indecies, test_indecies = gss.split(train, train['class_name'], train['image_id']).__next__()
+for writer in img_writers:
+    writer.write_image_set(
+        train['image_id'][train_indecies].drop_duplicates().sample(frac=1, random_state=211288).values, 'train_vin.txt')
+    writer.write_image_set(
+        train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288).values, 'val.txt')
+    writer.write_image_set(
+        train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288).values, 'all_vin.txt')
+    writer.write_image_set(test['img_id'].apply(lambda x: x).values, 'test.txt')
 
 # %%
+val_path = Path(config['result_dir']) / 'images'
+val_path_new = Path(config['result_dir']) / 'val_images'
+val_path_new.mkdir(parents=True, exist_ok=True)
+for val_id in train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288).values:
+    os.system('cp {} {}'.format(val_path / (val_id + '.png'), val_path_new / (val_id + '.png')))

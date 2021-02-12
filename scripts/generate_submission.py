@@ -8,11 +8,11 @@ import numpy as np
 import pandas as pd
 from IPython import get_ipython
 from mmcv import Config
+from vinbigdata import classname2classid
 from vinbigdata.postprocess import nms_models, normal_by_boxes
-from vinbigdata.testing import batch_inference, classname2classid, predict_boxes
+from vinbigdata.testing import batch_inference, predict_boxes
 from vinbigdata.utils import is_interactive, rel2abs
 from vinbigdata.visualize import plot_bboxes
-from vinbigdata.utils import is_interactive
 
 if is_interactive():
     get_ipython().magic('load_ext autoreload')

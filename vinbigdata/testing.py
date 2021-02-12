@@ -8,19 +8,8 @@ import pandas as pd
 from IPython import get_ipython
 from mmdet.core import eval_map
 from tqdm import tqdm
-from vinbigdata import BoxCoordsFloat, BoxesMeta, BoxWithScore, ImageMeta
+from vinbigdata import BoxCoordsFloat, BoxesMeta, BoxWithScore, ImageMeta, classname2mmdetid, mmdetid2classname
 from vinbigdata.utils import abs2rel, rel2abs
-
-mmdetection_classes: List[Tuple[str, int]] = [('Cardiomegaly', 3), ('Aortic enlargement', 0),
-                                              ('Pleural thickening', 11), ('ILD', 5), ('Nodule/Mass', 8),
-                                              ('Pulmonary fibrosis', 13), ('Lung Opacity', 7), ('Atelectasis', 1),
-                                              ('Other lesion', 9), ('Infiltration', 6), ('Pleural effusion', 10),
-                                              ('Calcification', 2), ('Consolidation', 4), ('Pneumothorax', 12),
-                                              ('No finding', 14)]
-
-mmdetid2classname = dict([(ind, cls[0]) for ind, cls in enumerate(mmdetection_classes)])
-classname2mmdetid = dict([(cls[0], ind) for ind, cls in enumerate(mmdetection_classes)])
-classname2classid = dict(mmdetection_classes)
 
 
 def generate_gt_boxes(img_data: pd.DataFrame) -> BoxesMeta:

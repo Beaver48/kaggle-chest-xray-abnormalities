@@ -1,0 +1,8 @@
+train: /workdir/data/processed/vinbigdataVOC2012/images/
+val: /workdir/data/processed/vinbigdataVOC2012/images/
+
+nc: 14
+
+names: ['Cardiomegaly', 'Aortic enlargement', 'Pleural thickening', 'ILD', 'Nodule/Mass', 'Pulmonary fibrosis',
+           'Lung Opacity', 'Atelectasis', 'Other lesion', 'Infiltration', 'Pleural effusion', 'Calcification',
+           'Consolidation', 'Pneumothorax']

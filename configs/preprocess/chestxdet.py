@@ -5,5 +5,5 @@ config = dict(
     images='data/raw/chestxdet10/*/*',
     clear=False,
     visualize=False,
-    result_dir='data/processed/vin_dataVOC2012',
+    result_dir='data/processed/vinbigdataVOC2012',
     preprocessor=prep.preprocessor)

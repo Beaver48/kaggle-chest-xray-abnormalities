@@ -7,5 +7,5 @@ config = dict(
     clear=True,
     visualize=True,
     aggree_rad=True,
-    result_dir='data/processed/vin_dataVOC2012',
+    result_dir='data/processed/vinbigdataVOC2012',
     preprocessor=prep.preprocessor)
