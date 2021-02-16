@@ -323,7 +323,7 @@ def train(hyp, opt, device, tb_writer=None):
             # Tensorboard
             if tb_writer:
                 tags = ['train/giou_loss', 'train/obj_loss', 'train/cls_loss',
-                        'metrics/precision', 'metrics/recall', 'metrics/mAP_0.5', 'metrics/mAP_0.5:0.95',
+                        'metrics/precision', 'metrics/recall', 'metrics/mAP_0.4', 'metrics/mAP_0.4:0.85',
                         'val/giou_loss', 'val/obj_loss', 'val/cls_loss']
                 for x, tag in zip(list(mloss[:-1]) + list(results), tags):
                     tb_writer.add_scalar(tag, x, epoch)

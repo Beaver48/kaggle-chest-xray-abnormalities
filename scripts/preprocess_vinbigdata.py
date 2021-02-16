@@ -250,11 +250,8 @@ test.to_csv(Path(config['result_dir']) / 'test.csv')
 gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=211288)
 train_indecies, test_indecies = gss.split(train, train['class_name'], train['image_id']).__next__()
 for writer in img_writers:
-    train_filtered = train.iloc[train_indecies]
-    train_filtered = train_filtered[train_filtered['class_name'] != 'No finding']['image_id']
-    all_filtered = train[train['class_name'] != 'No findings']['image_id']
-    writer.write_image_set(train_filtered.drop_duplicates().sample(frac=1, random_state=211288).values, 'train_vin.txt')
+    writer.write_image_set(train['image_id'][train_indecies].drop_duplicates().sample(frac=1, random_state=211288).values, 'train_vin.txt')
     writer.write_image_set(
         train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288).values, 'val.txt')
-    writer.write_image_set(all_filtered.drop_duplicates().sample(frac=1, random_state=211288).values, 'all_vin.txt')
+    writer.write_image_set(train['image_id'].drop_duplicates().sample(frac=1, random_state=211288).values, 'all_vin.txt')
     writer.write_image_set(test['img_id'].apply(lambda x: x).values, 'test.txt')

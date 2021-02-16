@@ -6,7 +6,6 @@ import shutil
 import time
 from pathlib import Path
 from threading import Thread
-
 import cv2
 import numpy as np
 import torch
@@ -330,8 +329,27 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.stride = stride
 
         # Define labels
-        self.label_files = [x.replace('images', 'labels').replace(os.path.splitext(x)[-1], '.txt') for x in
+        def get_bbox_count(file_name):
+            with open(file_name, 'r') as reader:
+                return len(reader.readlines())
+            
+        
+        label_files = [x.replace('JPEGImages', 'labels').replace(os.path.splitext(x)[-1], '.txt') for x in
                             self.img_files]
+        if augment:
+            label_files = [(file, get_bbox_count(file)) for file in label_files]
+            np.random.seed(1305)
+            normal_files =  [file[0] for file in label_files if file[1] == 0]
+            np.random.shuffle(normal_files)
+
+            abnormal_files =  [file[0] for file in label_files if file[1] != 0]
+            self.label_files = abnormal_files + normal_files[:self.hyp['normal_image_count']]
+            np.random.shuffle(self.label_files)
+            st = set([Path(f).stem for f in self.label_files])
+            self.img_files = [f for f in self.img_files if Path(f).stem in st]
+            print(len(self.img_files), len(self.label_files))
+        else:
+            self.label_files = label_files
 
         # Check cache
         cache_path = str(Path(self.label_files[0]).parent) + '.cache'  # cached labels

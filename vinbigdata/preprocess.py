@@ -124,8 +124,8 @@ class BaseWriter(ABC):
     def write_image_set(self, ids: List[str], file_name: str) -> None:
         raise NotImplementedError()
 
-    @abstractmethod
     @staticmethod
+    @abstractmethod
     def _create_dirs(data_dir: str, clear: bool = False) -> Tuple[Path, Path, Path]:
         raise NotImplementedError()
 
@@ -144,7 +144,8 @@ class VocWriter(BaseWriter):
         image_path = self.images_dir / img_name
         xml_path = self.annotations_dir / img_name.replace('.jpg', '.xml').replace('.png', '.xml')
         img, bboxes, classes = self.image_prepocessor(image_path.name, img, bboxes, classes)
-        cv2.imwrite(str(self.images_dir / img_name), img)
+        if not (self.images_dir / img_name).exists():
+            cv2.imwrite(str(self.images_dir / img_name), img)
         self.write_xml(xml_path, image_path, bboxes, classes, img.shape[0:2])
         return img.shape
 
@@ -192,7 +193,8 @@ class ScaledYoloWriter(BaseWriter):
         image_path = self.images_dir / img_name
         ann_path = self.annotations_dir / img_name.replace('.jpg', '.txt').replace('.png', '.txt')
         img, bboxes, classes = self.image_prepocessor(image_path.name, img, bboxes, classes)
-        cv2.imwrite(str(self.images_dir / img_name), img)
+        if not (self.images_dir / img_name).exists():
+            cv2.imwrite(str(self.images_dir / img_name), img)
         self.write_ann(ann_path, bboxes, classes, img.shape[0:2])
         return img.shape
 
@@ -212,7 +214,7 @@ class ScaledYoloWriter(BaseWriter):
         if clear and base_dir.exists():
             shutil.rmtree(base_dir)
         annotations = base_dir / 'labels'
-        images = base_dir / 'images'
+        images = base_dir / 'JPEGImages'
         image_sets = base_dir / 'yolo_image_sets'
 
         annotations.mkdir(parents=True, exist_ok=True)
