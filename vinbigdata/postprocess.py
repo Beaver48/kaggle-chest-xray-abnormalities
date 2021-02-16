@@ -18,10 +18,9 @@ def nms_models(data: Dict[str, List[ImageMeta]]) -> List[ImageMeta]:
             labels.append(tupl[2])
             weights.append(1.0)
         if sum([len(arr) for arr in bboxes]) != 0:
-            boxes_final, scores_final, labels_final = nms(bboxes, scores, labels, iou_thr=0.2, weights=weights)
+            boxes_final, scores_final, labels_final = nms(bboxes, scores, labels, iou_thr=0.5, weights=weights)
         else:
             boxes_final, scores_final, labels_final = [], [], []
-        boxes_final, scores_final, labels_final = bboxes[0], scores[0], labels[0]
         dat = data[list(data.keys())[0]][img_index]
         result_suppressed.append((dat[0], dat[1], (list(boxes_final), list(scores_final), list(labels_final))))
     return result_suppressed

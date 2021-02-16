@@ -1,4 +1,6 @@
+import json
 import pickle
+from itertools import groupby
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -23,23 +25,38 @@ def generate_gt_boxes(img_data: pd.DataFrame) -> BoxesMeta:
     return (boxes, scores, labels)
 
 
-def batch_inference(models: List[Dict[str, str]], ids_file: str, num_gpu: int) -> List[Tuple[str, str, str]]:
-    tool = '/mmdetection/tools/dist_test.sh'
+def batch_inference(models: List[Dict[str, str]], ids_file: str) -> List[Tuple[str, str, str, str]]:
     results = []
 
     for model_data in tqdm(models, total=len(models)):
-        command = 'bash {} {} {} {} --eval=mAP --cfg-options data.test.ann_file={} \
-                   --eval-options="iou_thr=0.4" --out={}'
-
         model_hash = checksum.get_for_file(model_data['model'])
         ids_hash = checksum.get_for_file(ids_file)
-        file_name = 'results/data/result-{}-{}.pkl'.format(model_hash, ids_hash)
         if model_data['type'] == 'mmdet':
+            tool = '/mmdetection/tools/dist_test.sh'
+            command = 'bash {} {} {} {} --eval=mAP --cfg-options data.test.ann_file={} \
+                   --eval-options="iou_thr=0.4" --out={}'
+
+            file_name = 'results/data/result-{}-{}.pkl'.format(model_hash, ids_hash)
             if not Path(file_name).exists():
-                command = command.format(tool, model_data['config'], model_data['model'], num_gpu, ids_file, file_name)
+                command = command.format(tool, model_data['config'], model_data['model'], model_data['num_gpu'],
+                                         ids_file, file_name)
                 res = get_ipython().run_line_magic('sx', command)
                 print(res[-100:])
-            results.append((model_data['model'], ids_file, file_name))
+            results.append((model_data['model'], model_data['type'], ids_file, file_name))
+        elif model_data['type'] == 'scaled_yolo':
+            command = 'python ScaledYOLOv4/test.py --img {} --conf 0.0001 --batch 8 --device 0 --data {} \
+                --weights {} --verbose --save-json --task={} --result-file={}'
+
+            file_name = 'results/data/result-{}-{}.json'.format(model_hash, ids_hash)
+            task = 'val' if 'val' in ids_file else 'test'
+            if not Path(file_name).exists():
+                command = command.format(model_data['img_shape'], model_data['config'], model_data['model'], task,
+                                         file_name)
+                res = get_ipython().run_line_magic('sx', command)
+                print(res[-100:])
+            results.append((model_data['model'], model_data['type'], ids_file, file_name))
+        else:
+            raise ValueError('Invalid model type')
     return results
 
 
@@ -65,17 +82,34 @@ def convert_array2mmdet(boxes: List[BoxCoordsFloat],
     return result
 
 
-def predict_boxes(img_ids: List[str], meta: pd.DataFrame, file_path: str) -> List[ImageMeta]:
-    predict_bboxes = pickle.load(open(file_path, 'rb'))
-
-    img_shapes: List[Tuple[int, int]] = [meta[['width', 'height']].loc[[img_id]].values[0] for img_id in img_ids]
-    original_img_shapes: List[Tuple[int, int]] = [
-        meta[['original_width', 'original_height']].loc[[img_id]].values[0] for img_id in img_ids
-    ]
+def predict_boxes(img_ids: List[str], meta: pd.DataFrame, file_path: str, model_type: str) -> List[ImageMeta]:
     res = []
-    for img_id, img_shape, original_img_shape, predict_boxes_img in zip(img_ids, img_shapes, original_img_shapes,
-                                                                        predict_bboxes):
-        res.append((img_id, original_img_shape, convert_mmdet2arrays(predict_boxes_img, img_shape)))
+    img_shapes: Dict[str,
+                     Tuple[int,
+                           int]] = {img_id: meta[['width', 'height']].loc[[img_id]].values[0]
+                                    for img_id in img_ids}
+    original_img_shapes: Dict[str, Tuple[int, int]] = {
+        img_id: meta[['original_width', 'original_height']].loc[[img_id]].values[0]
+        for img_id in img_ids
+    }
+
+    if model_type == 'mmdet':
+        predict_bboxes = pickle.load(open(file_path, 'rb'))
+        for img_id, predict_boxes_img in zip(img_ids, predict_bboxes):
+            res.append((img_id, original_img_shapes[img_id], convert_mmdet2arrays(predict_boxes_img,
+                                                                                  img_shapes[img_id])))
+    elif model_type == 'scaled_yolo':
+        predict_bboxes = json.load(open(file_path, 'r'))
+        for img_id, group in groupby(sorted(predict_bboxes, key=lambda x: x['image_id']), key=lambda x: x['image_id']):
+            g = list(group)
+            boxes = [
+                abs2rel(
+                    (img['bbox'][0], img['bbox'][1], img['bbox'][0] + img['bbox'][2], img['bbox'][1] + img['bbox'][3]),
+                    img_shapes[img_id]) for img in g
+            ]
+            scores = [img['score'] for img in g]
+            labels = [mmdetid2classname[img['category_id']] for img in g]
+            res.append((img_id, original_img_shapes[img_id], (boxes, scores, labels)))
     return res
 
 

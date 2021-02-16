@@ -6,6 +6,6 @@ config = dict(
     test_images_dir='data/raw/vinbigdata/test/',
     clear=True,
     visualize=True,
-    aggree_rad=True,
+    aggree_rad=False,
     result_dir='data/processed/vinbigdataVOC2012',
     preprocessor=prep.preprocessor)

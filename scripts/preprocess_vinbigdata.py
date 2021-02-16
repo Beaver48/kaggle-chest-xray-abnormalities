@@ -1,6 +1,5 @@
 # %%
 import glob
-import os
 from collections import defaultdict
 from itertools import groupby
 from pathlib import Path
@@ -10,7 +9,7 @@ import cv2
 import joblib
 import matplotlib.pyplot as plt
 import pandas as pd
-from ensemble_boxes import nms
+from ensemble_boxes import weighted_boxes_fusion
 from mmcv import Config
 from sklearn.model_selection import GroupShuffleSplit
 from tqdm import tqdm
@@ -33,7 +32,7 @@ for k, g in groupby(train_data.sort_values('file_name').to_dict(orient='records'
 def consolidate_radiologists(img_meta: List[ImageMeta],
                              rad_confidence: Dict[str, float],
                              img_shape: Tuple[int, int],
-                             iou_threshold: float = 0.15) -> List[ImageMeta]:
+                             iou_threshold: float = 0.10) -> List[ImageMeta]:
     new_meta = []
     image_id = img_meta[0]['image_id']
     for class_name, group in groupby(sorted(img_meta, key=lambda x: x['class_name']), lambda x: x['class_name']):
@@ -57,7 +56,7 @@ def consolidate_radiologists(img_meta: List[ImageMeta],
         ] for i in range(len(bboxes_mt))]]
         scores = [[rad_confidence[bboxes_mt[i]['rad_id']] * 2 for i in range(len(bboxes_mt))]]
         labels = [[1 for i in range(len(bboxes_mt))]]
-        boxes_final, _, _ = nms(bboxes, scores, labels, iou_thr=iou_threshold)
+        boxes_final, _, _ = weighted_boxes_fusion(bboxes, scores, labels, iou_thr=iou_threshold)
 
         for processed_bbox in boxes_final:
             bbox = ImageMeta({
@@ -104,7 +103,7 @@ def calc_rad_confidence(image_metas: List[Tuple[Path, List[ImageMeta]]],
 
 
 def filter_boxes_without_intersection(image_meta: Tuple[Path, List[ImageMeta]],
-                                      iou_threshold: float = 0.15,
+                                      iou_threshold: float = 0.3,
                                       io_sim_threshols: float = 0.9) -> Tuple[Path, List[ImageMeta]]:
     img_path = image_meta[0]
     filtered_image_meta = []
@@ -161,7 +160,7 @@ pipeline_func = create_pipeline(config)
 
 # %%
 if is_interactive() and config['visualize']:
-    for meta in images[0:50]:
+    for meta in images[0:150]:
         met = [m for m in meta[1] if m['class_name'] != 'No finding']
         if len(met) > 0:
             img = cv2.cvtColor(read_dicom_img(str(meta[0])), cv2.COLOR_GRAY2RGB)
@@ -251,17 +250,11 @@ test.to_csv(Path(config['result_dir']) / 'test.csv')
 gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=211288)
 train_indecies, test_indecies = gss.split(train, train['class_name'], train['image_id']).__next__()
 for writer in img_writers:
-    writer.write_image_set(
-        train['image_id'][train_indecies].drop_duplicates().sample(frac=1, random_state=211288).values, 'train_vin.txt')
+    train_filtered = train.iloc[train_indecies]
+    train_filtered = train_filtered[train_filtered['class_name'] != 'No finding']['image_id']
+    all_filtered = train[train['class_name'] != 'No findings']['image_id']
+    writer.write_image_set(train_filtered.drop_duplicates().sample(frac=1, random_state=211288).values, 'train_vin.txt')
     writer.write_image_set(
         train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288).values, 'val.txt')
-    writer.write_image_set(
-        train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288).values, 'all_vin.txt')
+    writer.write_image_set(all_filtered.drop_duplicates().sample(frac=1, random_state=211288).values, 'all_vin.txt')
     writer.write_image_set(test['img_id'].apply(lambda x: x).values, 'test.txt')
-
-# %%
-val_path = Path(config['result_dir']) / 'images'
-val_path_new = Path(config['result_dir']) / 'val_images'
-val_path_new.mkdir(parents=True, exist_ok=True)
-for val_id in train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288).values:
-    os.system('cp {} {}'.format(val_path / (val_id + '.png'), val_path_new / (val_id + '.png')))

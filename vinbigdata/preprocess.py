@@ -11,18 +11,19 @@ from pascal_voc_writer import Writer
 from pydicom import dcmread
 from pydicom.pixel_data_handlers.util import apply_voi_lut
 from typing_extensions import TypedDict
-from vinbigdata import BoxCoordsInt, classname2mmdetid
+from vinbigdata import BoxCoordsFloat, BoxCoordsInt, classname2mmdetid
 from vinbigdata.utils import abs2rel
 
-ImageMeta = TypedDict('ImageMeta', {
-    'image_id': str,
-    'class_name': str,
-    'rad_id': Optional[str],
-    'x_min': int,
-    'y_min': int,
-    'x_max': int,
-    'y_max': int
-})
+ImageMeta = TypedDict(
+    'ImageMeta', {
+        'image_id': str,
+        'class_name': str,
+        'rad_id': Optional[str],
+        'x_min': float,
+        'y_min': float,
+        'x_max': float,
+        'y_max': float
+    })
 
 
 class BaseTransform(ABC):
@@ -107,8 +108,7 @@ class BaseWriter(ABC):
 
     def __init__(self, directory: str, clear: bool, image_prepocessor: BaseTransform) -> None:
         self.image_prepocessor = image_prepocessor
-        self.annotations_dir, self.images_dir, self.image_sets_dir = ScaledYoloWriter._create_dirs(
-            directory, clear=clear)
+        self.annotations_dir, self.images_dir, self.image_sets_dir = self._create_dirs(directory, clear=clear)
 
     @abstractmethod
     def process_image(
@@ -120,9 +120,14 @@ class BaseWriter(ABC):
     ) -> Tuple[int, int]:
         raise NotImplementedError()
 
+    @abstractmethod
     def write_image_set(self, ids: List[str], file_name: str) -> None:
-        with open(self.image_sets_dir / file_name, 'w') as writer:
-            writer.write('\n'.join(ids))
+        raise NotImplementedError()
+
+    @abstractmethod
+    @staticmethod
+    def _create_dirs(data_dir: str, clear: bool = False) -> Tuple[Path, Path, Path]:
+        raise NotImplementedError()
 
 
 class VocWriter(BaseWriter):
@@ -168,6 +173,10 @@ class VocWriter(BaseWriter):
         image_sets.mkdir(parents=True, exist_ok=True)
         return (annotations, images, image_sets)
 
+    def write_image_set(self, ids: List[str], file_name: str) -> None:
+        with open(self.image_sets_dir / file_name, 'w') as writer:
+            writer.write('\n'.join(ids))
+
 
 class ScaledYoloWriter(BaseWriter):
     """ Class for writing data in ScaledYolo format
@@ -191,10 +200,11 @@ class ScaledYoloWriter(BaseWriter):
     def write_ann(ann_path: Path, bboxes: List[BoxCoordsInt], classes: List[str], img_shape: Tuple[int, int]) -> None:
         class_ids = [classname2mmdetid[cls] for cls in classes]
         normalized_boxes = [abs2rel(box, img_shape) for box in bboxes]
+        normalized_boxes = [((box[0] + box[2]) / 2, (box[1] + box[3]) / 2, box[2] - box[0], box[3] - box[1])
+                            for box in normalized_boxes]
         with open(ann_path, 'w') as writer:
             for bbox, class_id in zip(normalized_boxes, class_ids):
-                with open(ann_path, 'w') as writer:
-                    writer.write(' '.join([str(class_id)] + [str(coord) for coord in bbox]))
+                writer.write(' '.join([str(class_id)] + [str(coord) for coord in bbox]) + '\n')
 
     @staticmethod
     def _create_dirs(data_dir: str, clear: bool = False) -> Tuple[Path, Path, Path]:
@@ -203,12 +213,16 @@ class ScaledYoloWriter(BaseWriter):
             shutil.rmtree(base_dir)
         annotations = base_dir / 'labels'
         images = base_dir / 'images'
-        image_sets = base_dir / 'image_sets'
+        image_sets = base_dir / 'yolo_image_sets'
 
         annotations.mkdir(parents=True, exist_ok=True)
         images.mkdir(parents=True, exist_ok=True)
         image_sets.mkdir(parents=True, exist_ok=True)
         return (annotations, images, image_sets)
+
+    def write_image_set(self, ids: List[str], file_name: str) -> None:
+        with open(self.image_sets_dir / file_name, 'w') as writer:
+            writer.write('\n'.join([str(self.images_dir / (id + '.png')) for id in ids]))
 
 
 def read_dicom_img(path: str, apply_voi: bool = True) -> np.array:
@@ -226,7 +240,7 @@ def read_dicom_img(path: str, apply_voi: bool = True) -> np.array:
     return img_data
 
 
-def convert_bboxmeta2arrays(bbox_metas: List[ImageMeta]) -> Tuple[List[BoxCoordsInt], List[float], List[str]]:
+def convert_bboxmeta2arrays(bbox_metas: List[ImageMeta]) -> Tuple[List[BoxCoordsFloat], List[float], List[str]]:
     bboxes = [(bbox_meta['x_min'], bbox_meta['y_min'], bbox_meta['x_max'], bbox_meta['y_max'])
               for bbox_meta in bbox_metas if bbox_meta['class_name'] != 'No finding']
     labels = [bbox_meta['class_name'] for bbox_meta in bbox_metas if bbox_meta['class_name'] != 'No finding']

@@ -1,5 +1,6 @@
-train: /workdir/data/processed/vinbigdataVOC2012/images/
-val: /workdir/data/processed/vinbigdataVOC2012/images/
+train: /workdir/data/processed/vinbigdataVOC2012/yolo_image_sets/train_vin.txt
+val: /workdir/data/processed/vinbigdataVOC2012/yolo_image_sets/val.txt
+test: /workdir/data/processed/vinbigdataVOC2012/yolo_image_sets/test.txt
 
 nc: 14
 

@@ -5,14 +5,20 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from vinbigdata import BoxesMeta
 from vinbigdata.preprocess import ImageMeta, convert_bboxmeta2arrays
 
 COLOR_MAP: Dict[str, Tuple[int, int, int]] = {}
 
 
-def plot_bboxes(img: np.array, bboxes: List[Tuple[int, int, int, int]], scores: List[float],
-                labels: List[str]) -> np.array:
+def plot_bboxes(img: np.array,
+                bboxes: List[Tuple[float, float, float, float]],
+                scores: List[float],
+                labels: List[str],
+                threshold: float = 0.0) -> np.array:
     for bbox, score, label in zip(bboxes, scores, labels):
+        if score < threshold:
+            continue
         if label not in COLOR_MAP:
             color = sns.color_palette('tab20')[len(COLOR_MAP)]
             COLOR_MAP[label] = (int(color[0] * 255), int(color[1] * 255), int(color[2] * 255))
@@ -31,6 +37,24 @@ def visualize_label_suppression(img: np.array,
 
     bboxes, scores, labels = convert_bboxmeta2arrays(bbox_set2)
     img2 = plot_bboxes(copy.deepcopy(img), bboxes, scores, labels)
+    fig = plt.figure(figsize=fig_size)
+    fig.add_subplot(1, 2, 1)
+    plt.imshow(img1)
+    fig.add_subplot(1, 2, 2)
+    plt.imshow(img2)
+    return fig
+
+
+def visualize_two_bbox_set(img: np.array,
+                           bbox_set1: BoxesMeta,
+                           bbox_set2: BoxesMeta,
+                           threshold: float,
+                           fig_size: Tuple[float, float] = (28, 28)) -> None:
+    bboxes, scores, labels = bbox_set1
+    img1 = plot_bboxes(copy.deepcopy(img), bboxes, scores, labels, threshold)
+
+    bboxes, scores, labels = bbox_set2
+    img2 = plot_bboxes(copy.deepcopy(img), bboxes, scores, labels, threshold)
     fig = plt.figure(figsize=fig_size)
     fig.add_subplot(1, 2, 1)
     plt.imshow(img1)
