@@ -50,6 +50,8 @@ imageio==2.6.1
 ensemble-boxes==1.0.4
 efficientnet_pytorch==0.7.0
 pydicom==2.1.2
+timm==0.3.4
+
 
 # Web
 flask==1.1.1
