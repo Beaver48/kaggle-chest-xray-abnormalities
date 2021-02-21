@@ -8,32 +8,32 @@ from pathlib import Path
 import numpy as np
 import torch
 import yaml
-from tqdm import tqdm
-
 from models.experimental import attempt_load
+from tqdm import tqdm
 from utils.datasets import create_dataloader
-from utils.general import (
-    coco80_to_coco91_class, check_file, check_img_size, compute_loss, non_max_suppression,
-    scale_coords, xyxy2xywh, clip_coords, plot_images, xywh2xyxy, box_iou, output_to_target, ap_per_class)
+from utils.general import (ap_per_class, box_iou, check_file, check_img_size, clip_coords, coco80_to_coco91_class,
+                           compute_loss, non_max_suppression, output_to_target, plot_images, scale_coords, xywh2xyxy,
+                           xyxy2xywh)
 from utils.torch_utils import select_device, time_synchronized
 
 
-def test(data,
-         weights=None,
-         batch_size=16,
-         imgsz=640,
-         conf_thres=0.001,
-         iou_thres=0.6,  # for NMS
-         save_json=False,
-         single_cls=False,
-         augment=False,
-         verbose=False,
-         model=None,
-         dataloader=None,
-         save_dir='',
-         merge=False,
-         save_txt=False,
-         result_file='res.json'):
+def test(
+    data,
+    weights=None,
+    batch_size=16,
+    imgsz=640,
+    conf_thres=0.001,
+    iou_thres=0.6,  # for NMS
+    save_json=False,
+    single_cls=False,
+    augment=False,
+    verbose=False,
+    model=None,
+    dataloader=None,
+    save_dir='',
+    merge=False,
+    save_txt=False,
+    result_file='res.json'):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -74,8 +74,9 @@ def test(data,
         img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
         _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
         path = data['test'] if opt.task == 'test' else data['val']  # path to val/test images
-        dataloader = create_dataloader(path, imgsz, batch_size, model.stride.max(), opt,
-                                       hyp=None, augment=False, cache=False, pad=0.5, rect=True)[0]
+        dataloader = create_dataloader(
+            path, imgsz, batch_size, model.stride.max(), opt, hyp=None, augment=False, cache=False, pad=0.5,
+            rect=True)[0]
 
     seen = 0
     names = model.names if hasattr(model, 'names') else model.module.names
@@ -144,10 +145,12 @@ def test(data,
                 box = xyxy2xywh(box)  # xywh
                 box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
                 for p, b in zip(pred.tolist(), box.tolist()):
-                    jdict.append({'image_id': int(image_id) if image_id.isnumeric() else image_id,
-                                  'category_id': int(p[5]),
-                                  'bbox': [round(x, 3) for x in b],
-                                  'score': round(p[4], 5)})
+                    jdict.append({
+                        'image_id': int(image_id) if image_id.isnumeric() else image_id,
+                        'category_id': int(p[5]),
+                        'bbox': [round(x, 3) for x in b],
+                        'score': round(p[4], 5)
+                    })
 
             # Assign all predictions as incorrect
             correct = torch.zeros(pred.shape[0], niou, dtype=torch.bool, device=device)
@@ -215,7 +218,7 @@ def test(data,
 
     # Save JSON
     if save_json and len(jdict):
-        f = result_file 
+        f = result_file
         print('\nCOCO mAP with pycocotools... saving %s...' % f)
         with open(f, 'w') as file:
             json.dump(jdict, file)
@@ -267,18 +270,18 @@ if __name__ == '__main__':
     print(opt)
 
     if opt.task in ['val', 'test']:  # run normally
-        test(opt.data,
-             opt.weights,
-             opt.batch_size,
-             opt.img_size,
-             opt.conf_thres,
-             opt.iou_thres,
-             opt.save_json,
-             opt.single_cls,
-             opt.augment,
-             opt.verbose,
-             result_file=opt.result_file
-            )
+        test(
+            opt.data,
+            opt.weights,
+            opt.batch_size,
+            opt.img_size,
+            opt.conf_thres,
+            opt.iou_thres,
+            opt.save_json,
+            opt.single_cls,
+            opt.augment,
+            opt.verbose,
+            result_file=opt.result_file)
 
     elif opt.task == 'study':  # run over a range of settings and save/plot
         for weights in ['']:

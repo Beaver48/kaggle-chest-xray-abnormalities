@@ -21,7 +21,6 @@ import yaml
 from scipy.cluster.vq import kmeans
 from scipy.signal import butter, filtfilt
 from tqdm import tqdm
-
 from utils.torch_utils import init_seeds, is_parallel
 
 # Set printoptions
@@ -167,9 +166,11 @@ def coco80_to_coco91_class():  # converts 80-index (val2014) to 91-index (paper)
     # b = np.loadtxt('data/coco_paper.names', dtype='str', delimiter='\n')
     # x1 = [list(a[i] == b).index(True) + 1 for i in range(80)]  # darknet to coco
     # x2 = [list(b[i] == a).index(True) if any(b[i] == a) else None for i in range(91)]  # coco to darknet
-    x = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27, 28, 31, 32, 33, 34,
-         35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
-         64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90]
+    x = [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27, 28, 31, 32, 33, 34,
+        35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+        64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90
+    ]
     return x
 
 
@@ -341,13 +342,13 @@ def bbox_iou(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False):
             return iou - (c_area - union) / c_area  # GIoU
         if DIoU or CIoU:  # Distance or Complete IoU https://arxiv.org/abs/1911.08287v1
             # convex diagonal squared
-            c2 = cw ** 2 + ch ** 2 + 1e-16
+            c2 = cw**2 + ch**2 + 1e-16
             # centerpoint distance squared
-            rho2 = ((b2_x1 + b2_x2) - (b1_x1 + b1_x2)) ** 2 / 4 + ((b2_y1 + b2_y2) - (b1_y1 + b1_y2)) ** 2 / 4
+            rho2 = ((b2_x1 + b2_x2) - (b1_x1 + b1_x2))**2 / 4 + ((b2_y1 + b2_y2) - (b1_y1 + b1_y2))**2 / 4
             if DIoU:
                 return iou - rho2 / c2  # DIoU
             elif CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
-                v = (4 / math.pi ** 2) * torch.pow(torch.atan(w2 / h2) - torch.atan(w1 / h1), 2)
+                v = (4 / math.pi**2) * torch.pow(torch.atan(w2 / h2) - torch.atan(w1 / h1), 2)
                 with torch.no_grad():
                     alpha = v / (1 - iou + v + 1e-16)
                 return iou - (rho2 / c2 + v * alpha)  # CIoU
@@ -407,7 +408,7 @@ class FocalLoss(nn.Module):
         pred_prob = torch.sigmoid(pred)  # prob from logits
         p_t = true * pred_prob + (1 - true) * (1 - pred_prob)
         alpha_factor = true * self.alpha + (1 - true) * (1 - self.alpha)
-        modulating_factor = (1.0 - p_t) ** self.gamma
+        modulating_factor = (1.0 - p_t)**self.gamma
         loss *= alpha_factor * modulating_factor
 
         if self.reduction == 'mean':
@@ -474,7 +475,7 @@ def compute_loss(p, targets, model):  # predictions, targets, model
 
             # Regression
             pxy = ps[:, :2].sigmoid() * 2. - 0.5
-            pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i]
+            pwh = (ps[:, 2:4].sigmoid() * 2)**2 * anchors[i]
             pbox = torch.cat((pxy, pwh), 1).to(device)  # predicted box
             giou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # giou(prediction, target)
             lbox += (1.0 - giou).mean()  # giou loss
@@ -514,10 +515,16 @@ def build_targets(p, targets, model):
     targets = torch.cat((targets.repeat(na, 1, 1), ai[:, :, None]), 2)  # append anchor indices
 
     g = 0.5  # bias
-    off = torch.tensor([[0, 0],
-                        [1, 0], [0, 1], [-1, 0], [0, -1],  # j,k,l,m
-                        # [1, 1], [1, -1], [-1, 1], [-1, -1],  # jk,jm,lk,lm
-                        ], device=targets.device).float() * g  # offsets
+    off = torch.tensor(
+        [
+            [0, 0],
+            [1, 0],
+            [0, 1],
+            [-1, 0],
+            [0, -1],  # j,k,l,m
+            # [1, 1], [1, -1], [-1, 1], [-1, -1],  # jk,jm,lk,lm
+        ],
+        device=targets.device).float() * g  # offsets
 
     for i in range(det.nl):
         anchors = det.anchors[i]
@@ -650,14 +657,13 @@ def intersect(box_a, box_b):
     n = box_a.size(0)
     A = box_a.size(1)
     B = box_b.size(1)
-    max_xy = torch.min(box_a[:, :, 2:].unsqueeze(2).expand(n, A, B, 2),
-                       box_b[:, :, 2:].unsqueeze(1).expand(n, A, B, 2))
-    min_xy = torch.max(box_a[:, :, :2].unsqueeze(2).expand(n, A, B, 2),
-                       box_b[:, :, :2].unsqueeze(1).expand(n, A, B, 2))
+    max_xy = torch.min(box_a[:, :, 2:].unsqueeze(2).expand(n, A, B, 2), box_b[:, :, 2:].unsqueeze(1).expand(n, A, B, 2))
+    min_xy = torch.max(box_a[:, :, :2].unsqueeze(2).expand(n, A, B, 2), box_b[:, :, :2].unsqueeze(1).expand(n, A, B, 2))
     inter = torch.clamp((max_xy - min_xy), min=0)
     return inter[:, :, :, 0] * inter[:, :, :, 1]
 
-def jaccard(box_a, box_b, iscrowd:bool=False):
+
+def jaccard(box_a, box_b, iscrowd: bool = False):
     use_batch = True
     if box_a.dim() == 2:
         use_batch = False
@@ -665,16 +671,17 @@ def jaccard(box_a, box_b, iscrowd:bool=False):
         box_b = box_b[None, ...]
 
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, :, 2]-box_a[:, :, 0]) *
-              (box_a[:, :, 3]-box_a[:, :, 1])).unsqueeze(2).expand_as(inter)  # [A,B]
-    area_b = ((box_b[:, :, 2]-box_b[:, :, 0]) *
-              (box_b[:, :, 3]-box_b[:, :, 1])).unsqueeze(1).expand_as(inter)  # [A,B]
+    area_a = ((box_a[:, :, 2] - box_a[:, :, 0]) * (box_a[:, :, 3] - box_a[:, :, 1])).unsqueeze(2).expand_as(
+        inter)  # [A,B]
+    area_b = ((box_b[:, :, 2] - box_b[:, :, 0]) * (box_b[:, :, 3] - box_b[:, :, 1])).unsqueeze(1).expand_as(
+        inter)  # [A,B]
     union = area_a + area_b - inter
     out = inter / area_a if iscrowd else inter / (union + 0.0000001)
 
     return out if use_batch else out.squeeze(0)
 
-def jaccard_diou(box_a, box_b, iscrowd:bool=False):
+
+def jaccard_diou(box_a, box_b, iscrowd: bool = False):
     use_batch = True
     if box_a.dim() == 2:
         use_batch = False
@@ -682,15 +689,15 @@ def jaccard_diou(box_a, box_b, iscrowd:bool=False):
         box_b = box_b[None, ...]
 
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, :, 2]-box_a[:, :, 0]) *
-              (box_a[:, :, 3]-box_a[:, :, 1])).unsqueeze(2).expand_as(inter)  # [A,B]
-    area_b = ((box_b[:, :, 2]-box_b[:, :, 0]) *
-              (box_b[:, :, 3]-box_b[:, :, 1])).unsqueeze(1).expand_as(inter)  # [A,B]
+    area_a = ((box_a[:, :, 2] - box_a[:, :, 0]) * (box_a[:, :, 3] - box_a[:, :, 1])).unsqueeze(2).expand_as(
+        inter)  # [A,B]
+    area_b = ((box_b[:, :, 2] - box_b[:, :, 0]) * (box_b[:, :, 3] - box_b[:, :, 1])).unsqueeze(1).expand_as(
+        inter)  # [A,B]
     union = area_a + area_b - inter
-    x1 = ((box_a[:, :, 2]+box_a[:, :, 0]) / 2).unsqueeze(2).expand_as(inter)
-    y1 = ((box_a[:, :, 3]+box_a[:, :, 1]) / 2).unsqueeze(2).expand_as(inter)
-    x2 = ((box_b[:, :, 2]+box_b[:, :, 0]) / 2).unsqueeze(1).expand_as(inter)
-    y2 = ((box_b[:, :, 3]+box_b[:, :, 1]) / 2).unsqueeze(1).expand_as(inter)
+    x1 = ((box_a[:, :, 2] + box_a[:, :, 0]) / 2).unsqueeze(2).expand_as(inter)
+    y1 = ((box_a[:, :, 3] + box_a[:, :, 1]) / 2).unsqueeze(2).expand_as(inter)
+    x2 = ((box_b[:, :, 2] + box_b[:, :, 0]) / 2).unsqueeze(1).expand_as(inter)
+    y2 = ((box_b[:, :, 3] + box_b[:, :, 1]) / 2).unsqueeze(1).expand_as(inter)
 
     t1 = box_a[:, :, 1].unsqueeze(2).expand_as(inter)
     b1 = box_a[:, :, 3].unsqueeze(2).expand_as(inter)
@@ -706,9 +713,10 @@ def jaccard_diou(box_a, box_b, iscrowd:bool=False):
     cl = torch.min(l1, l2)
     ct = torch.min(t1, t2)
     cb = torch.max(b1, b2)
-    D = (((x2 - x1)**2 + (y2 - y1)**2) / ((cr-cl)**2 + (cb-ct)**2 + 1e-7))
-    out = inter / area_a if iscrowd else inter / (union + 1e-7) - D ** 0.7
+    D = (((x2 - x1)**2 + (y2 - y1)**2) / ((cr - cl)**2 + (cb - ct)**2 + 1e-7))
+    out = inter / area_a if iscrowd else inter / (union + 1e-7) - D**0.7
     return out if use_batch else out.squeeze(0)
+
 
 def box_diou(boxes1, boxes2):
     # https://github.com/pytorch/vision/blob/master/torchvision/ops/boxes.py
@@ -732,20 +740,27 @@ def box_diou(boxes1, boxes2):
 
     lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])  # [N,M,2]
     rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])  # [N,M,2]
-    clt=torch.min(boxes1[:, None, :2], boxes2[:, :2])
-    crb=torch.max(boxes1[:, None, 2:], boxes2[:, 2:])
-    x1=(boxes1[:, None, 0] + boxes1[:, None, 2])/2
-    y1=(boxes1[:, None, 1] + boxes1[:, None, 3])/2
-    x2=(boxes2[:, None, 0] + boxes2[:, None, 2])/2
-    y2=(boxes2[:, None, 1] + boxes2[:, None, 3])/2
-    d=(x1-x2.t())**2 + (y1-y2.t())**2
-    c=((crb-clt)**2).sum(dim=2)
+    clt = torch.min(boxes1[:, None, :2], boxes2[:, :2])
+    crb = torch.max(boxes1[:, None, 2:], boxes2[:, 2:])
+    x1 = (boxes1[:, None, 0] + boxes1[:, None, 2]) / 2
+    y1 = (boxes1[:, None, 1] + boxes1[:, None, 3]) / 2
+    x2 = (boxes2[:, None, 0] + boxes2[:, None, 2]) / 2
+    y2 = (boxes2[:, None, 1] + boxes2[:, None, 3]) / 2
+    d = (x1 - x2.t())**2 + (y1 - y2.t())**2
+    c = ((crb - clt)**2).sum(dim=2)
 
     inter = (rb - lt).clamp(min=0).prod(2)  # [N,M]
     return inter / (area1[:, None] + area2 - inter) - (d / c)**0.6  # iou = inter / (area1 + area2 - inter)
 
+
 # For batch mode Cluster-Weighted NMS
-def non_max_suppression2(prediction, conf_thres=0.1, iou_thres=0.6, max_box=1500, merge=False, classes=None, agnostic=False):
+def non_max_suppression2(prediction,
+                         conf_thres=0.1,
+                         iou_thres=0.6,
+                         max_box=1500,
+                         merge=False,
+                         classes=None,
+                         agnostic=False):
     """Performs Non-Maximum Suppression (NMS) on inference results
     Returns:
          detections with shape: nx6 (x1, y1, x2, y2, conf, cls)
@@ -764,10 +779,11 @@ def non_max_suppression2(prediction, conf_thres=0.1, iou_thres=0.6, max_box=1500
     multi_label = nc > 1  # multiple labels per box (adds 0.5ms/img)
 
     t = time.time()
-    output = [None] * prediction.shape[0]   
-    pred1 = (prediction < -1).float()[:,:max_box,:6]    # pred1.size()=[batch, max_box, max_box] denotes boxes without offset by class
-    pred2 = pred1[:,:,:4]+0   # pred2 denotes boxes with offset by class
-    batch_size = prediction.shape[0]   
+    output = [None] * prediction.shape[0]
+    pred1 = (prediction < -1
+             ).float()[:, :max_box, :6]  # pred1.size()=[batch, max_box, max_box] denotes boxes without offset by class
+    pred2 = pred1[:, :, :4] + 0  # pred2 denotes boxes with offset by class
+    batch_size = prediction.shape[0]
     for xi, x in enumerate(prediction):  # image index, image inference
         # Apply constraints
         # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
@@ -809,23 +825,24 @@ def non_max_suppression2(prediction, conf_thres=0.1, iou_thres=0.6, max_box=1500
         c = x[:, 5] * 0 if agnostic else x[:, 5]  # classes
 
         boxes = (x[:, :4].clone() + c.view(-1, 1) * max_wh)[:max_box]  # boxes (offset by class), scores
-        pred2[xi,:] = torch.cat((boxes, pred2[xi,:]), 0)[:max_box]        # If less than max_box, padding 0.
-        pred1[xi,:] = torch.cat((x[:max_box], pred1[xi,:]), 0)[:max_box]
+        pred2[xi, :] = torch.cat((boxes, pred2[xi, :]), 0)[:max_box]  # If less than max_box, padding 0.
+        pred1[xi, :] = torch.cat((x[:max_box], pred1[xi, :]), 0)[:max_box]
 
     # Batch mode Cluster-Weighted NMS
 
-    iou = jaccard_diou(pred2, pred2).triu_(diagonal=1)    # switch to 'jaccard_diou' function for using Cluster-DIoU-NMS
+    iou = jaccard_diou(pred2, pred2).triu_(diagonal=1)  # switch to 'jaccard_diou' function for using Cluster-DIoU-NMS
     B = iou
     for i in range(200):
-        A=B
-        maxA=A.max(dim=1)[0]
-        E = (maxA<iou_thres).float().unsqueeze(2).expand_as(A)
-        B=iou.mul(E)
-        if A.equal(B)==True:
+        A = B
+        maxA = A.max(dim=1)[0]
+        E = (maxA < iou_thres).float().unsqueeze(2).expand_as(A)
+        B = iou.mul(E)
+        if A.equal(B) == True:
             break
-    keep = (maxA <= iou_thres) 
-    weights = (B*(B>0.8) + torch.eye(max_box).cuda().expand(batch_size,max_box,max_box)) * (pred1[:,:,4].reshape((batch_size,1,max_box)))
-    pred1[:,:, :4]=torch.matmul(weights,pred1[:,:,:4]) / weights.sum(2, keepdim=True)   # weighted coordinates
+    keep = (maxA <= iou_thres)
+    weights = (B * (B > 0.8) + torch.eye(max_box).cuda().expand(batch_size, max_box, max_box)) * (
+        pred1[:, :, 4].reshape((batch_size, 1, max_box)))
+    pred1[:, :, :4] = torch.matmul(weights, pred1[:, :, :4]) / weights.sum(2, keepdim=True)  # weighted coordinates
 
     for jj in range(batch_size):
         output[jj] = pred1[jj][keep[jj]]
@@ -945,8 +962,10 @@ def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=10
         x, best = metric(k, wh0)
         bpr, aat = (best > thr).float().mean(), (x > thr).float().mean() * n  # best possible recall, anch > thr
         print('thr=%.2f: %.4f best possible recall, %.2f anchors past thr' % (thr, bpr, aat))
-        print('n=%g, img_size=%s, metric_all=%.3f/%.3f-mean/best, past_thr=%.3f-mean: ' %
-              (n, img_size, x.mean(), best.mean(), x[x > thr].mean()), end='')
+        print(
+            'n=%g, img_size=%s, metric_all=%.3f/%.3f-mean/best, past_thr=%.3f-mean: ' %
+            (n, img_size, x.mean(), best.mean(), x[x > thr].mean()),
+            end='')
         for i, x in enumerate(k):
             print('%i,%i' % (round(x[0]), round(x[1])), end=',  ' if i < len(k) - 1 else '\n')  # use in *.cfg
         return k
@@ -1158,8 +1177,8 @@ def plot_wh_methods():  # from utils.utils import *; plot_wh_methods()
 
     fig = plt.figure(figsize=(6, 3), dpi=150)
     plt.plot(x, ya, '.-', label='YOLO')
-    plt.plot(x, yb ** 2, '.-', label='YOLO ^2')
-    plt.plot(x, yb ** 1.6, '.-', label='YOLO ^1.6')
+    plt.plot(x, yb**2, '.-', label='YOLO ^2')
+    plt.plot(x, yb**1.6, '.-', label='YOLO ^1.6')
     plt.xlim(left=-4, right=4)
     plt.ylim(bottom=0, top=6)
     plt.xlabel('input')
@@ -1188,7 +1207,7 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
 
     bs, _, h, w = images.shape  # batch size, _, height, width
     bs = min(bs, max_subplots)  # limit plot images
-    ns = np.ceil(bs ** 0.5)  # number of subplots (square)
+    ns = np.ceil(bs**0.5)  # number of subplots (square)
 
     # Check if we should resize
     scale_factor = max_size / max(h, w)
@@ -1240,8 +1259,13 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
         if paths is not None:
             label = os.path.basename(paths[i])[:40]  # trim to 40 char
             t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
-            cv2.putText(mosaic, label, (block_x + 5, block_y + t_size[1] + 5), 0, tl / 3, [220, 220, 220], thickness=tf,
-                        lineType=cv2.LINE_AA)
+            cv2.putText(
+                mosaic,
+                label, (block_x + 5, block_y + t_size[1] + 5),
+                0,
+                tl / 3, [220, 220, 220],
+                thickness=tf,
+                lineType=cv2.LINE_AA)
 
         # Image border
         cv2.rectangle(mosaic, (block_x, block_y), (block_x + w, block_y + h), (255, 255, 255), thickness=3)
@@ -1315,11 +1339,21 @@ def plot_study_txt(f='study.txt', x=None):  # from utils.utils import *; plot_st
             ax[i].set_title(s[i])
 
         j = y[3].argmax() + 1
-        ax2.plot(y[6, :j], y[3, :j] * 1E2, '.-', linewidth=2, markersize=8,
-                 label=Path(f).stem.replace('study_coco_', '').replace('yolo', 'YOLO'))
+        ax2.plot(
+            y[6, :j],
+            y[3, :j] * 1E2,
+            '.-',
+            linewidth=2,
+            markersize=8,
+            label=Path(f).stem.replace('study_coco_', '').replace('yolo', 'YOLO'))
 
-    ax2.plot(1E3 / np.array([209, 140, 97, 58, 35, 18]), [33.8, 39.6, 43.0, 47.5, 49.4, 50.7],
-             'k.-', linewidth=2, markersize=8, alpha=.25, label='EfficientDet')
+    ax2.plot(
+        1E3 / np.array([209, 140, 97, 58, 35, 18]), [33.8, 39.6, 43.0, 47.5, 49.4, 50.7],
+        'k.-',
+        linewidth=2,
+        markersize=8,
+        alpha=.25,
+        label='EfficientDet')
 
     ax2.grid()
     ax2.set_xlim(0, 30)
@@ -1398,13 +1432,19 @@ def plot_results_overlay(start=0, stop=0):  # from utils.utils import *; plot_re
         fig.savefig(f.replace('.txt', '.png'), dpi=200)
 
 
-def plot_results(start=0, stop=0, bucket='', id=(), labels=(),
+def plot_results(start=0,
+                 stop=0,
+                 bucket='',
+                 id=(),
+                 labels=(),
                  save_dir=''):  # from utils.utils import *; plot_results()
     # Plot training 'results*.txt' as seen in https://github.com/ultralytics/yolov3
     fig, ax = plt.subplots(2, 5, figsize=(12, 6))
     ax = ax.ravel()
-    s = ['GIoU', 'Objectness', 'Classification', 'Precision', 'Recall',
-         'val GIoU', 'val Objectness', 'val Classification', 'mAP@0.5', 'mAP@0.5:0.95']
+    s = [
+        'GIoU', 'Objectness', 'Classification', 'Precision', 'Recall', 'val GIoU', 'val Objectness',
+        'val Classification', 'mAP@0.5', 'mAP@0.5:0.95'
+    ]
     if bucket:
         os.system('rm -rf storage.googleapis.com')
         files = ['https://storage.googleapis.com/%s/results%g.txt' % (bucket, x) for x in id]

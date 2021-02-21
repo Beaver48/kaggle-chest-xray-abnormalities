@@ -2,6 +2,7 @@ import argparse
 import math
 import os
 import random
+import test  # import test.py to get mAP after each epoch
 import time
 from pathlib import Path
 
@@ -12,20 +13,18 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 import torch.utils.data
 import yaml
+from models.yolo import Model
 from torch.cuda import amp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-
-import test  # import test.py to get mAP after each epoch
-from models.yolo import Model
 from utils.datasets import create_dataloader
-from utils.general import (
-    check_img_size, torch_distributed_zero_first, labels_to_class_weights, plot_labels, check_anchors,
-    labels_to_image_weights, compute_loss, plot_images, fitness, strip_optimizer, plot_results,
-    get_latest_run, check_git_status, check_file, increment_dir, print_mutation, plot_evolution)
+from utils.general import (check_anchors, check_file, check_git_status, check_img_size, compute_loss, fitness,
+                           get_latest_run, increment_dir, labels_to_class_weights, labels_to_image_weights,
+                           plot_evolution, plot_images, plot_labels, plot_results, print_mutation, strip_optimizer,
+                           torch_distributed_zero_first)
 from utils.google_utils import attempt_download
-from utils.torch_utils import init_seeds, ModelEMA, select_device, intersect_dicts
+from utils.torch_utils import ModelEMA, init_seeds, intersect_dicts, select_device
 
 
 def train(hyp, opt, device, tb_writer=None):
@@ -69,7 +68,7 @@ def train(hyp, opt, device, tb_writer=None):
         model.load_state_dict(state_dict, strict=False)  # load
         print('Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weights))  # report
     else:
-        model = Model(opt.cfg, ch=3, nc=nc).to(device)# create
+        model = Model(opt.cfg, ch=3, nc=nc).to(device)  # create
         #model = model.to(memory_format=torch.channels_last)  # create
 
     # Optimizer
@@ -99,7 +98,7 @@ def train(hyp, opt, device, tb_writer=None):
 
     # Scheduler https://arxiv.org/pdf/1812.01187.pdf
     # https://pytorch.org/docs/stable/_modules/torch/optim/lr_scheduler.html#OneCycleLR
-    lf = lambda x: (((1 + math.cos(x * math.pi / epochs)) / 2) ** 1.0) * 0.8 + 0.2  # cosine
+    lf = lambda x: (((1 + math.cos(x * math.pi / epochs)) / 2)**1.0) * 0.8 + 0.2  # cosine
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
     # plot_lr_scheduler(optimizer, scheduler, epochs)
 
@@ -124,7 +123,7 @@ def train(hyp, opt, device, tb_writer=None):
             epochs += ckpt['epoch']  # finetune additional epochs
 
         del ckpt, state_dict
-    
+
     # Image sizes
     gs = int(max(model.stride))  # grid size (max stride)
     imgsz, imgsz_test = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
@@ -146,9 +145,18 @@ def train(hyp, opt, device, tb_writer=None):
         model = DDP(model, device_ids=[opt.local_rank], output_device=(opt.local_rank))
 
     # Trainloader
-    dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, gs, opt, hyp=hyp, augment=True,
-                                            cache=opt.cache_images, rect=opt.rect, local_rank=rank,
-                                            world_size=opt.world_size)
+    dataloader, dataset = create_dataloader(
+        train_path,
+        imgsz,
+        batch_size,
+        gs,
+        opt,
+        hyp=hyp,
+        augment=True,
+        cache=opt.cache_images,
+        rect=opt.rect,
+        local_rank=rank,
+        world_size=opt.world_size)
     mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
     nb = len(dataloader)  # number of batches
     assert mlc < nc, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (mlc, nc, opt.data, nc - 1)
@@ -157,8 +165,18 @@ def train(hyp, opt, device, tb_writer=None):
     if rank in [-1, 0]:
         ema.updates = start_epoch * nb // accumulate  # set EMA updates ***
         # local_rank is set to -1. Because only the first process is expected to do evaluation.
-        testloader = create_dataloader(test_path, imgsz_test, batch_size, gs, opt, hyp=hyp, augment=False,
-                                       cache=opt.cache_images, rect=True, local_rank=-1, world_size=opt.world_size)[0]
+        testloader = create_dataloader(
+            test_path,
+            imgsz_test,
+            batch_size,
+            gs,
+            opt,
+            hyp=hyp,
+            augment=False,
+            cache=opt.cache_images,
+            rect=True,
+            local_rank=-1,
+            world_size=opt.world_size)[0]
 
     # Model parameters
     hyp['cls'] *= nc / 80.  # scale coco-tuned hyp['cls'] to current dataset
@@ -202,10 +220,10 @@ def train(hyp, opt, device, tb_writer=None):
         if dataset.image_weights:
             # Generate indices
             if rank in [-1, 0]:
-                w = model.class_weights.cpu().numpy() * (1 - maps) ** 2  # class weights
+                w = model.class_weights.cpu().numpy() * (1 - maps)**2  # class weights
                 image_weights = labels_to_image_weights(dataset.labels, nc=nc, class_weights=w)
-                dataset.indices = random.choices(range(dataset.n), weights=image_weights,
-                                                 k=dataset.n)  # rand weighted idx
+                dataset.indices = random.choices(
+                    range(dataset.n), weights=image_weights, k=dataset.n)  # rand weighted idx
             # Broadcast if DDP
             if rank != -1:
                 indices = torch.zeros([dataset.n], dtype=torch.int)
@@ -252,7 +270,7 @@ def train(hyp, opt, device, tb_writer=None):
 
             # Autocast
             with amp.autocast(enabled=cuda):
-                # Forward                
+                # Forward
                 pred = model(imgs)
                 #pred = model(imgs.to(memory_format=torch.channels_last))
 
@@ -279,8 +297,8 @@ def train(hyp, opt, device, tb_writer=None):
             if rank in [-1, 0]:
                 mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
                 mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
-                s = ('%10s' * 2 + '%10.4g' * 6) % (
-                    '%g/%g' % (epoch, epochs - 1), mem, *mloss, targets.shape[0], imgs.shape[-1])
+                s = ('%10s' * 2 + '%10.4g' * 6) % ('%g/%g' %
+                                                   (epoch, epochs - 1), mem, *mloss, targets.shape[0], imgs.shape[-1])
                 pbar.set_description(s)
 
                 # Plot
@@ -303,16 +321,16 @@ def train(hyp, opt, device, tb_writer=None):
                 ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'gr', 'names', 'stride'])
             final_epoch = epoch + 1 == epochs
             if not opt.notest or final_epoch:  # Calculate mAP
-                results, maps, times = test.test(opt.data,
-                                                 batch_size=batch_size,
-                                                 imgsz=imgsz_test,
-                                                 save_json=final_epoch and opt.data.endswith(os.sep + 'coco.yaml'),
-                                                 model=ema.ema.module if hasattr(ema.ema, 'module') else ema.ema,
-                                                 single_cls=opt.single_cls,
-                                                 dataloader=testloader,
-                                                 save_dir=log_dir,
-                                                 verbose=True
-                                                )
+                results, maps, times = test.test(
+                    opt.data,
+                    batch_size=batch_size,
+                    imgsz=imgsz_test,
+                    save_json=final_epoch and opt.data.endswith(os.sep + 'coco.yaml'),
+                    model=ema.ema.module if hasattr(ema.ema, 'module') else ema.ema,
+                    single_cls=opt.single_cls,
+                    dataloader=testloader,
+                    save_dir=log_dir,
+                    verbose=True)
 
             # Write
             with open(results_file, 'a') as f:
@@ -322,9 +340,10 @@ def train(hyp, opt, device, tb_writer=None):
 
             # Tensorboard
             if tb_writer:
-                tags = ['train/giou_loss', 'train/obj_loss', 'train/cls_loss',
-                        'metrics/precision', 'metrics/recall', 'metrics/mAP_0.4', 'metrics/mAP_0.4:0.85',
-                        'val/giou_loss', 'val/obj_loss', 'val/cls_loss']
+                tags = [
+                    'train/giou_loss', 'train/obj_loss', 'train/cls_loss', 'metrics/precision', 'metrics/recall',
+                    'metrics/mAP_0.4', 'metrics/mAP_0.4:0.85', 'val/giou_loss', 'val/obj_loss', 'val/cls_loss'
+                ]
                 for x, tag in zip(list(mloss[:-1]) + list(results), tags):
                     tb_writer.add_scalar(tag, x, epoch)
 
@@ -337,16 +356,18 @@ def train(hyp, opt, device, tb_writer=None):
             save = (not opt.nosave) or (final_epoch and not opt.evolve)
             if save:
                 with open(results_file, 'r') as f:  # create checkpoint
-                    ckpt = {'epoch': epoch,
-                            'best_fitness': best_fitness,
-                            'training_results': f.read(),
-                            'model': ema.ema.module if hasattr(ema, 'module') else ema.ema,
-                            'optimizer': None if final_epoch else optimizer.state_dict()}
+                    ckpt = {
+                        'epoch': epoch,
+                        'best_fitness': best_fitness,
+                        'training_results': f.read(),
+                        'model': ema.ema.module if hasattr(ema, 'module') else ema.ema,
+                        'optimizer': None if final_epoch else optimizer.state_dict()
+                    }
 
                 # Save last, best and delete
                 torch.save(ckpt, last)
-                if epoch >= (epochs-30):
-                    torch.save(ckpt, last.replace('.pt','_{:03d}.pt'.format(epoch)))
+                if epoch >= (epochs - 30):
+                    torch.save(ckpt, last.replace('.pt', '_{:03d}.pt'.format(epoch)))
                 if best_fitness == fi:
                     torch.save(ckpt, best)
                 del ckpt
@@ -361,7 +382,7 @@ def train(hyp, opt, device, tb_writer=None):
             if os.path.exists(f1):
                 os.rename(f1, f2)  # rename
                 ispt = f2.endswith('.pt')  # is *.pt
-                strip_optimizer(f2, f2.replace('.pt','_strip.pt')) if ispt else None  # strip optimizer
+                strip_optimizer(f2, f2.replace('.pt', '_strip.pt')) if ispt else None  # strip optimizer
                 os.system('gsutil cp %s gs://%s/weights' % (f2, opt.bucket)) if opt.bucket and ispt else None  # upload
         # Finish
         if not opt.evolve:
@@ -379,12 +400,16 @@ if __name__ == '__main__':
     parser.add_argument('--cfg', type=str, default='', help='model.yaml path')
     parser.add_argument('--data', type=str, default='data/coco128.yaml', help='data.yaml path')
     parser.add_argument('--hyp', type=str, default='', help='hyperparameters path, i.e. data/hyp.scratch.yaml')
-    parser.add_argument('--epochs', type=int, default=300)
+    parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--batch-size', type=int, default=16, help='total batch size for all GPUs')
     parser.add_argument('--img-size', nargs='+', type=int, default=[640, 640], help='train,test sizes')
     parser.add_argument('--rect', action='store_true', help='rectangular training')
-    parser.add_argument('--resume', nargs='?', const='get_last', default=False,
-                        help='resume from given path/last.pt, or most recent run if blank')
+    parser.add_argument(
+        '--resume',
+        nargs='?',
+        const='get_last',
+        default=False,
+        help='resume from given path/last.pt, or most recent run if blank')
     parser.add_argument('--nosave', action='store_true', help='only save final checkpoint')
     parser.add_argument('--notest', action='store_true', help='only test final epoch')
     parser.add_argument('--noautoanchor', action='store_true', help='disable autoanchor check')
@@ -407,7 +432,7 @@ if __name__ == '__main__':
         if last and not opt.weights:
             print(f'Resuming training from {last}')
         opt.weights = last if opt.resume and not opt.weights else opt.weights
-    if opt.local_rank == -1 or ("RANK" in os.environ and os.environ["RANK"] == "0"):
+    if opt.local_rank == -1 or ('RANK' in os.environ and os.environ['RANK'] == '0'):
         check_git_status()
 
     opt.hyp = opt.hyp or ('data/hyp.finetune.yaml' if opt.weights else 'data/hyp.scratch.yaml')
@@ -447,28 +472,30 @@ if __name__ == '__main__':
     # Evolve hyperparameters (optional)
     else:
         # Hyperparameter evolution metadata (mutation scale 0-1, lower_limit, upper_limit)
-        meta = {'lr0': (1, 1e-5, 1e-1),  # initial learning rate (SGD=1E-2, Adam=1E-3)
-                'momentum': (0.1, 0.6, 0.98),  # SGD momentum/Adam beta1
-                'weight_decay': (1, 0.0, 0.001),  # optimizer weight decay
-                'giou': (1, 0.02, 0.2),  # GIoU loss gain
-                'cls': (1, 0.2, 4.0),  # cls loss gain
-                'cls_pw': (1, 0.5, 2.0),  # cls BCELoss positive_weight
-                'obj': (1, 0.2, 4.0),  # obj loss gain (scale with pixels)
-                'obj_pw': (1, 0.5, 2.0),  # obj BCELoss positive_weight
-                'iou_t': (0, 0.1, 0.7),  # IoU training threshold
-                'anchor_t': (1, 2.0, 8.0),  # anchor-multiple threshold
-                'fl_gamma': (0, 0.0, 2.0),  # focal loss gamma (efficientDet default gamma=1.5)
-                'hsv_h': (1, 0.0, 0.1),  # image HSV-Hue augmentation (fraction)
-                'hsv_s': (1, 0.0, 0.9),  # image HSV-Saturation augmentation (fraction)
-                'hsv_v': (1, 0.0, 0.9),  # image HSV-Value augmentation (fraction)
-                'degrees': (1, 0.0, 45.0),  # image rotation (+/- deg)
-                'translate': (1, 0.0, 0.9),  # image translation (+/- fraction)
-                'scale': (1, 0.0, 0.9),  # image scale (+/- gain)
-                'shear': (1, 0.0, 10.0),  # image shear (+/- deg)
-                'perspective': (1, 0.0, 0.001),  # image perspective (+/- fraction), range 0-0.001
-                'flipud': (0, 0.0, 1.0),  # image flip up-down (probability)
-                'fliplr': (1, 0.0, 1.0),  # image flip left-right (probability)
-                'mixup': (1, 0.0, 1.0)}  # image mixup (probability)
+        meta = {
+            'lr0': (1, 1e-5, 1e-1),  # initial learning rate (SGD=1E-2, Adam=1E-3)
+            'momentum': (0.1, 0.6, 0.98),  # SGD momentum/Adam beta1
+            'weight_decay': (1, 0.0, 0.001),  # optimizer weight decay
+            'giou': (1, 0.02, 0.2),  # GIoU loss gain
+            'cls': (1, 0.2, 4.0),  # cls loss gain
+            'cls_pw': (1, 0.5, 2.0),  # cls BCELoss positive_weight
+            'obj': (1, 0.2, 4.0),  # obj loss gain (scale with pixels)
+            'obj_pw': (1, 0.5, 2.0),  # obj BCELoss positive_weight
+            'iou_t': (0, 0.1, 0.7),  # IoU training threshold
+            'anchor_t': (1, 2.0, 8.0),  # anchor-multiple threshold
+            'fl_gamma': (0, 0.0, 2.0),  # focal loss gamma (efficientDet default gamma=1.5)
+            'hsv_h': (1, 0.0, 0.1),  # image HSV-Hue augmentation (fraction)
+            'hsv_s': (1, 0.0, 0.9),  # image HSV-Saturation augmentation (fraction)
+            'hsv_v': (1, 0.0, 0.9),  # image HSV-Value augmentation (fraction)
+            'degrees': (1, 0.0, 45.0),  # image rotation (+/- deg)
+            'translate': (1, 0.0, 0.9),  # image translation (+/- fraction)
+            'scale': (1, 0.0, 0.9),  # image scale (+/- gain)
+            'shear': (1, 0.0, 10.0),  # image shear (+/- deg)
+            'perspective': (1, 0.0, 0.001),  # image perspective (+/- fraction), range 0-0.001
+            'flipud': (0, 0.0, 1.0),  # image flip up-down (probability)
+            'fliplr': (1, 0.0, 1.0),  # image flip left-right (probability)
+            'mixup': (1, 0.0, 1.0)
+        }  # image mixup (probability)
 
         assert opt.local_rank == -1, 'DDP mode not implemented for --evolve'
         opt.notest, opt.nosave = True, True  # only test/save final epoch

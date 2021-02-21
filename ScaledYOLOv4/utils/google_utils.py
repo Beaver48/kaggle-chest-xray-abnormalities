@@ -15,8 +15,9 @@ def attempt_download(weights):
 
     r = 1  # return
     if len(weights) > 0 and not os.path.isfile(weights):
-        d = {'',
-             }
+        d = {
+            '',
+        }
 
         file = Path(weights).name
         if file in d:
@@ -43,7 +44,7 @@ def gdrive_download(id='1n_oKgR81BJtqk75b00eAjdv03qVCQn2f', name='coco128.zip'):
     os.remove('cookie') if os.path.exists('cookie') else None
 
     # Attempt file download
-    out = "NUL" if platform.system() == "Windows" else "/dev/null"
+    out = 'NUL' if platform.system() == 'Windows' else '/dev/null'
     os.system('curl -c ./cookie -s -L "drive.google.com/uc?export=download&id=%s" > %s ' % (id, out))
     if os.path.exists('cookie'):  # large file
         s = 'curl -Lb ./cookie "drive.google.com/uc?export=download&confirm=%s&id=%s" -o %s' % (get_token(), id, name)
@@ -68,9 +69,9 @@ def gdrive_download(id='1n_oKgR81BJtqk75b00eAjdv03qVCQn2f', name='coco128.zip'):
     return r
 
 
-def get_token(cookie="./cookie"):
+def get_token(cookie='./cookie'):
     with open(cookie) as f:
         for line in f:
-            if "download" in line:
+            if 'download' in line:
                 return line.split()[-1]
-    return ""
+    return ''
