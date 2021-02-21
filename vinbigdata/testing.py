@@ -110,6 +110,10 @@ def predict_boxes(img_ids: List[str], meta: pd.DataFrame, file_path: str, model_
             scores = [img['score'] for img in g]
             labels = [mmdetid2classname[img['category_id']] for img in g]
             res.append((img_id, original_img_shapes[img_id], (boxes, scores, labels)))
+    img_id_set = {r[0] for r in res}
+    for img_id in img_shapes.keys():
+        if img_id not in img_id_set:
+            res.append((img_id, original_img_shapes[img_id], ([], [], [])))
     return res
 
 

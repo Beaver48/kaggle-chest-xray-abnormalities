@@ -3,11 +3,11 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 from ensemble_boxes import nms
-from vinbigdata import BoxCoordsFloat, BoxesMeta, ImageMeta
+from vinbigdata import BoxCoordsFloat, BoxesMeta, ImageMeta, classname2mmdetid, mmdetid2classname
 from vinbigdata.utils import abs2rel
 
 
-def nms_models(data: Dict[str, List[ImageMeta]]) -> List[ImageMeta]:
+def nms_models(data: Dict[str, List[ImageMeta]], iou_threshold: float = 0.5) -> List[ImageMeta]:
     result_suppressed = []
     for img_index in range(len(data[list(data.keys())[0]])):
         bboxes, scores, labels, weights = [], [], [], []
@@ -15,10 +15,11 @@ def nms_models(data: Dict[str, List[ImageMeta]]) -> List[ImageMeta]:
             tupl = data[model][img_index][2]
             bboxes.append(tupl[0] if len(tupl[0]) > 0 else np.zeros((0, 4)))
             scores.append(tupl[1])
-            labels.append(tupl[2])
+            labels.append([classname2mmdetid[label] for label in tupl[2]])
             weights.append(1.0)
         if sum([len(arr) for arr in bboxes]) != 0:
-            boxes_final, scores_final, labels_final = nms(bboxes, scores, labels, iou_thr=0.5, weights=weights)
+            boxes_final, scores_final, labels_final = nms(bboxes, scores, labels, iou_thr=iou_threshold)
+            labels_final = [mmdetid2classname[label] for label in labels_final]
         else:
             boxes_final, scores_final, labels_final = [], [], []
         dat = data[list(data.keys())[0]][img_index]

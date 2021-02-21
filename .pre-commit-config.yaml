@@ -3,6 +3,7 @@ repos:
     rev: 3.8.0
     hooks:
       - id: flake8
+        exclude: ^ScaledYOLOv4/
   - repo: https://github.com/asottile/seed-isort-config
     rev: v2.1.0
     hooks:
@@ -20,6 +21,7 @@ repos:
     hooks:
       - id: mypy
         args: [--no-strict-optional, --ignore-missing-imports]
+        exclude: ^ScaledYOLOv4/
   - repo: https://github.com/pre-commit/mirrors-pylint
     rev: v2.5.2
     hooks:
@@ -30,6 +32,7 @@ repos:
         - --max-args=8
         - --ignore-imports=yes
         - -d E0401,C0114,C0116,C0103,W0105,R0903,C0415,C0330,W0621 # turn on W0621 on prod
+        exclude: ^ScaledYOLOv4/
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v2.5.0
     hooks:
