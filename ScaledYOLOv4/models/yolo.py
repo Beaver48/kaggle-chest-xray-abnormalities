@@ -5,15 +5,15 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-
 from models.common import *
-from models.experimental import MixConv2d, CrossConv, C3
-from utils.general import check_anchor_order, make_divisible, check_file
-from utils.torch_utils import (
-    time_synchronized, fuse_conv_and_bn, model_info, scale_img, initialize_weights, select_device)
+from models.experimental import C3, CrossConv, MixConv2d
+from utils.general import check_anchor_order, check_file, make_divisible
+from utils.torch_utils import (fuse_conv_and_bn, initialize_weights, model_info, scale_img, select_device,
+                               time_synchronized)
 
 
 class Detect(nn.Module):
+
     def __init__(self, nc=80, anchors=(), ch=()):  # detection layer
         super(Detect, self).__init__()
         self.stride = None  # strides computed during build
@@ -43,7 +43,7 @@ class Detect(nn.Module):
 
                 y = x[i].sigmoid()
                 y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + self.grid[i].to(x[i].device)) * self.stride[i]  # xy
-                y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
+                y[..., 2:4] = (y[..., 2:4] * 2)**2 * self.anchor_grid[i]  # wh
                 z.append(y.view(bs, -1, self.no))
 
         return x if self.training else (torch.cat(z, 1), x)
@@ -55,6 +55,7 @@ class Detect(nn.Module):
 
 
 class Model(nn.Module):
+
     def __init__(self, cfg='yolov4-p5.yaml', ch=3, nc=None):  # model, input channels, number of classes
         super(Model, self).__init__()
         if isinstance(cfg, dict):
@@ -117,7 +118,7 @@ class Model(nn.Module):
             if profile:
                 try:
                     import thop
-                    o = thop.profile(m, inputs=(x,), verbose=False)[0] / 1E9 * 2  # FLOPS
+                    o = thop.profile(m, inputs=(x, ), verbose=False)[0] / 1E9 * 2  # FLOPS
                 except:
                     o = 0
                 t = time_synchronized()
@@ -138,7 +139,7 @@ class Model(nn.Module):
         m = self.model[-1]  # Detect() module
         for mi, s in zip(m.m, m.stride):  # from
             b = mi.bias.view(m.na, -1)  # conv.bias(255) to (3,85)
-            b[:, 4] += math.log(8 / (640 / s) ** 2)  # obj (8 objects per 640 image)
+            b[:, 4] += math.log(8 / (640 / s)**2)  # obj (8 objects per 640 image)
             b[:, 5:] += math.log(0.6 / (m.nc - 0.99)) if cf is None else torch.log(cf / cf.sum())  # cls
             mi.bias = torch.nn.Parameter(b.view(-1), requires_grad=True)
 
@@ -184,7 +185,10 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 pass
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in [nn.Conv2d, Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, BottleneckCSP2, SPPCSP, VoVCSP, C3]:
+        if m in [
+                nn.Conv2d, Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, BottleneckCSP2,
+                SPPCSP, VoVCSP, C3
+        ]:
             c1, c2 = ch[f], args[0]
 
             # Normal

@@ -8,13 +8,12 @@ from pathlib import Path
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
-from numpy import random
-
 from models.experimental import attempt_load
-from utils.datasets import LoadStreams, LoadImages
-from utils.general import (
-    check_img_size, non_max_suppression, apply_classifier, scale_coords, xyxy2xywh, plot_one_box, strip_optimizer)
-from utils.torch_utils import select_device, load_classifier, time_synchronized
+from numpy import random
+from utils.datasets import LoadImages, LoadStreams
+from utils.general import (apply_classifier, check_img_size, non_max_suppression, plot_one_box, scale_coords,
+                           strip_optimizer, xyxy2xywh)
+from utils.torch_utils import load_classifier, select_device, time_synchronized
 
 
 def detect(save_img=False):

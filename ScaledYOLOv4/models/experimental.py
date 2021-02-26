@@ -3,7 +3,6 @@
 import numpy as np
 import torch
 import torch.nn as nn
-
 from models.common import Conv, DWConv
 from utils.google_utils import attempt_download
 
@@ -80,11 +79,12 @@ class GhostBottleneck(nn.Module):
     def __init__(self, c1, c2, k, s):
         super(GhostBottleneck, self).__init__()
         c_ = c2 // 2
-        self.conv = nn.Sequential(GhostConv(c1, c_, 1, 1),  # pw
-                                  DWConv(c_, c_, k, s, act=False) if s == 2 else nn.Identity(),  # dw
-                                  GhostConv(c_, c2, 1, 1, act=False))  # pw-linear
-        self.shortcut = nn.Sequential(DWConv(c1, c1, k, s, act=False),
-                                      Conv(c1, c2, 1, 1, act=False)) if s == 2 else nn.Identity()
+        self.conv = nn.Sequential(
+            GhostConv(c1, c_, 1, 1),  # pw
+            DWConv(c_, c_, k, s, act=False) if s == 2 else nn.Identity(),  # dw
+            GhostConv(c_, c2, 1, 1, act=False))  # pw-linear
+        self.shortcut = nn.Sequential(DWConv(c1, c1, k, s, act=False), Conv(c1, c2, 1, 1,
+                                                                            act=False)) if s == 2 else nn.Identity()
 
     def forward(self, x):
         return self.conv(x) + self.shortcut(x)
@@ -102,7 +102,7 @@ class MixConv2d(nn.Module):
             b = [c2] + [0] * groups
             a = np.eye(groups + 1, groups, k=-1)
             a -= np.roll(a, 1, axis=1)
-            a *= np.array(k) ** 2
+            a *= np.array(k)**2
             a[0] = 1
             c_ = np.linalg.lstsq(a, b, rcond=None)[0].round()  # solve for equal weight indices, ax = b
 
