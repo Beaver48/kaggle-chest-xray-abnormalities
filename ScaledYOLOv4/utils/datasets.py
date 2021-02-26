@@ -346,8 +346,17 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             self.label_files = abnormal_files + normal_files[:self.hyp['normal_image_count']]
             np.random.shuffle(self.label_files)
             st = set([Path(f).stem for f in self.label_files])
-            self.img_files = [f for f in self.img_files if Path(f).stem in st]
+            self.img_files = [
+                x.replace('labels', 'JPEGImages').replace(os.path.splitext(x)[-1], '.png') for x in self.label_files
+            ]
             print(len(self.img_files), len(self.label_files))
+            n = len(self.img_files)
+            assert n > 0, 'No images found in %s. See %s' % (path, help_url)
+            bi = np.floor(np.arange(n) / batch_size).astype(np.int)  # batch index
+            nb = bi[-1] + 1  # number of batches
+
+            self.n = n  # number of images
+            self.batch = bi  # batch index of image
         else:
             self.label_files = label_files
 
@@ -512,23 +521,13 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         else:
             # Load image
-            img, (h0, w0), (h, w) = load_image(self, index)
-
-            # Letterbox
-            shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
-            img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
-            shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
-
-            # Load labels
-            labels = []
-            x = self.labels[index]
-            if x.size > 0:
-                # Normalized xywh to pixel xyxy format
-                labels = x.copy()
-                labels[:, 1] = ratio[0] * w * (x[:, 1] - x[:, 3] / 2) + pad[0]  # pad width
-                labels[:, 2] = ratio[1] * h * (x[:, 2] - x[:, 4] / 2) + pad[1]  # pad height
-                labels[:, 3] = ratio[0] * w * (x[:, 1] + x[:, 3] / 2) + pad[0]
-                labels[:, 4] = ratio[1] * h * (x[:, 2] + x[:, 4] / 2) + pad[1]
+            img, labels, shapes = self.load_image_and_labels(index)
+            if random.random() < hyp['mixup']:
+                index_mixup = random.randint(0, len(self.labels) - 1)
+                img2, labels2, _ = self.load_image_and_labels(index_mixup)
+                r = np.random.beta(8.0, 8.0)  # mixup ratio, alpha=beta=8.0
+                img = (img * r + img2 * (1 - r)).astype(np.uint8)
+                labels = np.concatenate([labels, labels2], 0)
 
         if self.augment:
             # Augment imagespace
@@ -576,6 +575,28 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         return torch.from_numpy(img), labels_out, self.img_files[index], shapes
 
+    def load_image_and_labels(self, index):
+        img, (h0, w0), (h, w) = load_image(self, index)
+
+        # Letterbox
+        shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
+        img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
+        shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
+
+        # Load labels
+        labels = []
+        x = self.labels[index]
+        if x.size > 0:
+            # Normalized xywh to pixel xyxy format
+            labels = x.copy()
+            labels[:, 1] = ratio[0] * w * (x[:, 1] - x[:, 3] / 2) + pad[0]  # pad width
+            labels[:, 2] = ratio[1] * h * (x[:, 2] - x[:, 4] / 2) + pad[1]  # pad height
+            labels[:, 3] = ratio[0] * w * (x[:, 1] + x[:, 3] / 2) + pad[0]
+            labels[:, 4] = ratio[1] * h * (x[:, 2] + x[:, 4] / 2) + pad[1]
+        if len(labels) == 0:
+            labels = np.zeros((0,5))
+        return img, labels, shapes
+    
     @staticmethod
     def collate_fn(batch):
         img, label, path, shapes = zip(*batch)  # transposed
