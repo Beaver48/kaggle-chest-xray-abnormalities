@@ -5,30 +5,20 @@ import random
 import shutil
 import time
 from pathlib import Path
-from threading import Thread
-
 import cv2
 import numpy as np
 import torch
-from PIL import ExifTags, Image
+from PIL import Image, ExifTags
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from utils.general import torch_distributed_zero_first, xywh2xyxy, xyxy2xywh
 
-help_url = ''
+from utils.general import xyxy2xywh, xywh2xyxy, torch_distributed_zero_first
+
 img_formats = ['.bmp', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.dng']
-vid_formats = ['.mov', '.avi', '.mp4', '.mpg', '.mpeg', '.m4v', '.wmv', '.mkv']
 
-# Get orientation exif tag
 for orientation in ExifTags.TAGS.keys():
     if ExifTags.TAGS[orientation] == 'Orientation':
         break
-
-
-def get_hash(files):
-    # Returns a single hash value of a list of files
-    return sum(os.path.getsize(f) for f in files if os.path.isfile(f))
-
 
 def exif_size(img):
     # Returns exif-corrected PIL size
@@ -44,288 +34,43 @@ def exif_size(img):
 
     return s
 
+def get_hash(files):
+    # Returns a single hash value of a list of files
+    return sum(os.path.getsize(f) for f in files if os.path.isfile(f))
 
-def create_dataloader(path,
-                      imgsz,
-                      batch_size,
-                      stride,
-                      opt,
-                      hyp=None,
-                      augment=False,
-                      cache=False,
-                      pad=0.0,
-                      rect=False,
-                      local_rank=-1,
-                      world_size=1):
+def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=False, cache=False, pad=0.0, rect=False,
+                      local_rank=-1, world_size=1):
     # Make sure only the first process in DDP process the dataset first, and the following others can use the cache.
     with torch_distributed_zero_first(local_rank):
-        dataset = LoadImagesAndLabels(
-            path,
-            imgsz,
-            batch_size,
-            augment=augment,  # augment images
-            hyp=hyp,  # augmentation hyperparameters
-            rect=rect,  # rectangular training
-            cache_images=cache,
-            single_cls=opt.single_cls,
-            stride=int(stride),
-            pad=pad)
+        dataset = LoadImagesAndLabels(path, imgsz, batch_size,
+                                      augment=augment,  # augment images
+                                      hyp=hyp,  # augmentation hyperparameters
+                                      rect=rect,  # rectangular training
+                                      cache_images=cache,
+                                      single_cls=opt.single_cls,
+                                      stride=int(stride),
+                                      pad=pad)
 
     batch_size = min(batch_size, len(dataset))
     nw = min([os.cpu_count() // world_size, batch_size if batch_size > 1 else 0, 8])  # number of workers
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset) if local_rank != -1 else None
-    dataloader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=batch_size,
-        num_workers=nw,
-        sampler=train_sampler,
-        pin_memory=True,
-        collate_fn=LoadImagesAndLabels.collate_fn)
+    dataloader = torch.utils.data.DataLoader(dataset,
+                                             batch_size=batch_size,
+                                             num_workers=nw,
+                                             sampler=train_sampler,
+                                             pin_memory=True,
+                                             collate_fn=LoadImagesAndLabels.collate_fn)
     return dataloader, dataset
 
 
-class LoadImages:  # for inference
-
-    def __init__(self, path, img_size=640):
-        p = str(Path(path))  # os-agnostic
-        p = os.path.abspath(p)  # absolute path
-        if '*' in p:
-            files = sorted(glob.glob(p))  # glob
-        elif os.path.isdir(p):
-            files = sorted(glob.glob(os.path.join(p, '*.*')))  # dir
-        elif os.path.isfile(p):
-            files = [p]  # files
-        else:
-            raise Exception('ERROR: %s does not exist' % p)
-
-        images = [x for x in files if os.path.splitext(x)[-1].lower() in img_formats]
-        videos = [x for x in files if os.path.splitext(x)[-1].lower() in vid_formats]
-        ni, nv = len(images), len(videos)
-
-        self.img_size = img_size
-        self.files = images + videos
-        self.nf = ni + nv  # number of files
-        self.video_flag = [False] * ni + [True] * nv
-        self.mode = 'images'
-        if any(videos):
-            self.new_video(videos[0])  # new video
-        else:
-            self.cap = None
-        assert self.nf > 0, 'No images or videos found in %s. Supported formats are:\nimages: %s\nvideos: %s' % \
-                            (p, img_formats, vid_formats)
-
-    def __iter__(self):
-        self.count = 0
-        return self
-
-    def __next__(self):
-        if self.count == self.nf:
-            raise StopIteration
-        path = self.files[self.count]
-
-        if self.video_flag[self.count]:
-            # Read video
-            self.mode = 'video'
-            ret_val, img0 = self.cap.read()
-            if not ret_val:
-                self.count += 1
-                self.cap.release()
-                if self.count == self.nf:  # last video
-                    raise StopIteration
-                else:
-                    path = self.files[self.count]
-                    self.new_video(path)
-                    ret_val, img0 = self.cap.read()
-
-            self.frame += 1
-            print('video %g/%g (%g/%g) %s: ' % (self.count + 1, self.nf, self.frame, self.nframes, path), end='')
-
-        else:
-            # Read image
-            self.count += 1
-            img0 = cv2.imread(path)  # BGR
-            assert img0 is not None, 'Image Not Found ' + path
-            print('image %g/%g %s: ' % (self.count, self.nf, path), end='')
-
-        # Padded resize
-        img = letterbox(img0, new_shape=self.img_size)[0]
-
-        # Convert
-        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
-        img = np.ascontiguousarray(img)
-
-        # cv2.imwrite(path + '.letterbox.jpg', 255 * img.transpose((1, 2, 0))[:, :, ::-1])  # save letterbox image
-        return path, img, img0, self.cap
-
-    def new_video(self, path):
-        self.frame = 0
-        self.cap = cv2.VideoCapture(path)
-        self.nframes = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    def __len__(self):
-        return self.nf  # number of files
-
-
-class LoadWebcam:  # for inference
-
-    def __init__(self, pipe=0, img_size=640):
-        self.img_size = img_size
-
-        if pipe == '0':
-            pipe = 0  # local camera
-        # pipe = 'rtsp://192.168.1.64/1'  # IP camera
-        # pipe = 'rtsp://username:password@192.168.1.64/1'  # IP camera with login
-        # pipe = 'rtsp://170.93.143.139/rtplive/470011e600ef003a004ee33696235daa'  # IP traffic camera
-        # pipe = 'http://wmccpinetop.axiscam.net/mjpg/video.mjpg'  # IP golf camera
-
-        # https://answers.opencv.org/question/215996/changing-gstreamer-pipeline-to-opencv-in-pythonsolved/
-        # pipe = '"rtspsrc location="rtsp://username:password@192.168.1.64/1" latency=10 ! appsink'  # GStreamer
-
-        # https://answers.opencv.org/question/200787/video-acceleration-gstremer-pipeline-in-videocapture/
-        # https://stackoverflow.com/questions/54095699/install-gstreamer-support-for-opencv-python-package  # install help
-        # pipe = "rtspsrc location=rtsp://root:root@192.168.0.91:554/axis-media/media.amp?videocodec=h264&resolution=3840x2160 protocols=GST_RTSP_LOWER_TRANS_TCP ! rtph264depay ! queue ! vaapih264dec ! videoconvert ! appsink"  # GStreamer
-
-        self.pipe = pipe
-        self.cap = cv2.VideoCapture(pipe)  # video capture object
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)  # set buffer size
-
-    def __iter__(self):
-        self.count = -1
-        return self
-
-    def __next__(self):
-        self.count += 1
-        if cv2.waitKey(1) == ord('q'):  # q to quit
-            self.cap.release()
-            cv2.destroyAllWindows()
-            raise StopIteration
-
-        # Read frame
-        if self.pipe == 0:  # local camera
-            ret_val, img0 = self.cap.read()
-            img0 = cv2.flip(img0, 1)  # flip left-right
-        else:  # IP camera
-            n = 0
-            while True:
-                n += 1
-                self.cap.grab()
-                if n % 30 == 0:  # skip frames
-                    ret_val, img0 = self.cap.retrieve()
-                    if ret_val:
-                        break
-
-        # Print
-        assert ret_val, 'Camera Error %s' % self.pipe
-        img_path = 'webcam.jpg'
-        print('webcam %g: ' % self.count, end='')
-
-        # Padded resize
-        img = letterbox(img0, new_shape=self.img_size)[0]
-
-        # Convert
-        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
-        img = np.ascontiguousarray(img)
-
-        return img_path, img, img0, None
-
-    def __len__(self):
-        return 0
-
-
-class LoadStreams:  # multiple IP or RTSP cameras
-
-    def __init__(self, sources='streams.txt', img_size=640):
-        self.mode = 'images'
-        self.img_size = img_size
-
-        if os.path.isfile(sources):
-            with open(sources, 'r') as f:
-                sources = [x.strip() for x in f.read().splitlines() if len(x.strip())]
-        else:
-            sources = [sources]
-
-        n = len(sources)
-        self.imgs = [None] * n
-        self.sources = sources
-        for i, s in enumerate(sources):
-            # Start the thread to read frames from the video stream
-            print('%g/%g: %s... ' % (i + 1, n, s), end='')
-            cap = cv2.VideoCapture(0 if s == '0' else s)
-            assert cap.isOpened(), 'Failed to open %s' % s
-            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            fps = cap.get(cv2.CAP_PROP_FPS) % 100
-            _, self.imgs[i] = cap.read()  # guarantee first frame
-            thread = Thread(target=self.update, args=([i, cap]), daemon=True)
-            print(' success (%gx%g at %.2f FPS).' % (w, h, fps))
-            thread.start()
-        print('')  # newline
-
-        # check for common shapes
-        s = np.stack([letterbox(x, new_shape=self.img_size)[0].shape for x in self.imgs], 0)  # inference shapes
-        self.rect = np.unique(s, axis=0).shape[0] == 1  # rect inference if all shapes equal
-        if not self.rect:
-            print('WARNING: Different stream shapes detected. For optimal performance supply similarly-shaped streams.')
-
-    def update(self, index, cap):
-        # Read next stream frame in a daemon thread
-        n = 0
-        while cap.isOpened():
-            n += 1
-            # _, self.imgs[index] = cap.read()
-            cap.grab()
-            if n == 4:  # read every 4th frame
-                _, self.imgs[index] = cap.retrieve()
-                n = 0
-            time.sleep(0.01)  # wait time
-
-    def __iter__(self):
-        self.count = -1
-        return self
-
-    def __next__(self):
-        self.count += 1
-        img0 = self.imgs.copy()
-        if cv2.waitKey(1) == ord('q'):  # q to quit
-            cv2.destroyAllWindows()
-            raise StopIteration
-
-        # Letterbox
-        img = [letterbox(x, new_shape=self.img_size, auto=self.rect)[0] for x in img0]
-
-        # Stack
-        img = np.stack(img, 0)
-
-        # Convert
-        img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
-        img = np.ascontiguousarray(img)
-
-        return self.sources, img, img0, None
-
-    def __len__(self):
-        return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
-
-
 class LoadImagesAndLabels(Dataset):  # for training/testing
-
-    def __init__(self,
-                 path,
-                 img_size=640,
-                 batch_size=16,
-                 augment=False,
-                 hyp=None,
-                 rect=False,
-                 image_weights=False,
-                 cache_images=False,
-                 single_cls=False,
-                 stride=32,
-                 pad=0.0):
+    def __init__(self, path, img_size=640, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
+                 cache_images=False, single_cls=False, stride=32, pad=0.0):
         try:
             f = []  # image files
             for p in path if isinstance(path, list) else [path]:
-                p = str(Path(p))  # os-agnostic
+                p = str(Path(p))
                 parent = str(Path(p).parent) + os.sep
-                print(p, parent)
                 if os.path.isfile(p):  # file
                     with open(p, 'r') as t:
                         t = t.read().splitlines()
@@ -360,24 +105,23 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         def get_bbox_count(file_name):
             with open(file_name, 'r') as reader:
                 return len(reader.readlines())
-
-        label_files = [
-            x.replace('JPEGImages', 'labels').replace(os.path.splitext(x)[-1], '.txt') for x in self.img_files
-        ]
+            
+        
+        label_files = [x.replace('JPEGImages', 'labels').replace(os.path.splitext(x)[-1], '.txt') for x in
+                            self.img_files]
         if augment:
             label_files = [(file, get_bbox_count(file)) for file in label_files]
             np.random.seed(1305)
-            normal_files = [file[0] for file in label_files if file[1] == 0]
+            normal_files =  [file[0] for file in label_files if file[1] == 0]
             np.random.shuffle(normal_files)
 
-            abnormal_files = [file[0] for file in label_files if file[1] != 0]
+            abnormal_files =  [file[0] for file in label_files if file[1] != 0]
             self.label_files = abnormal_files + normal_files[:self.hyp['normal_image_count']]
             np.random.shuffle(self.label_files)
             st = set([Path(f).stem for f in self.label_files])
             self.img_files = [
                 x.replace('labels', 'JPEGImages').replace(os.path.splitext(x)[-1], '.png') for x in self.label_files
             ]
-            print(len(self.img_files), len(self.label_files))
             n = len(self.img_files)
             assert n > 0, 'No images found in %s. See %s' % (path, help_url)
             bi = np.floor(np.arange(n) / batch_size).astype(np.int)  # batch index
@@ -504,7 +248,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 l = []
                 image = Image.open(img)
                 image.verify()  # PIL verify
-                # _ = io.imread(img)  # skimage verify (from skimage import io)
                 shape = exif_size(image)  # image size
                 assert (shape[0] > 9) & (shape[1] > 9), 'image size <10 pixels'
                 if os.path.isfile(label):
@@ -524,57 +267,45 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
     def __len__(self):
         return len(self.img_files)
 
-    # def __iter__(self):
-    #     self.count = -1
-    #     print('ran dataset iter')
-    #     #self.shuffled_vector = np.random.permutation(self.nF) if self.augment else np.arange(self.nF)
-    #     return self
-
     def __getitem__(self, index):
         if self.image_weights:
             index = self.indices[index]
-
-        hyp = self.hyp
+        
+        # MixUp https://arxiv.org/pdf/1710.09412.pdf
+        mixup_flag = random.random() < self.hyp['mixup'] if self.hyp is not None else False
         if self.mosaic:
-            # Load mosaic
-            img, labels = load_mosaic(self, index)
+            img, labels = self.load_mosaic(index)
             shapes = None
-
-            # MixUp https://arxiv.org/pdf/1710.09412.pdf
-            if random.random() < hyp['mixup']:
-                img2, labels2 = load_mosaic(self, random.randint(0, len(self.labels) - 1))
-                r = np.random.beta(8.0, 8.0)  # mixup ratio, alpha=beta=8.0
-                img = (img * r + img2 * (1 - r)).astype(np.uint8)
-                labels = np.concatenate((labels, labels2), 0)
-
+            if mixup_flag:
+                index_mixup = random.randint(0, len(self.labels) - 1)
+                img2, labels2 = self.load_mosaic(index_mixup)
         else:
-            # Load image
             img, labels, shapes = self.load_image_and_labels(index)
-            if random.random() < hyp['mixup']:
+            if mixup_flag:
                 index_mixup = random.randint(0, len(self.labels) - 1)
                 img2, labels2, _ = self.load_image_and_labels(index_mixup)
-                r = np.random.beta(8.0, 8.0)  # mixup ratio, alpha=beta=8.0
-                img = (img * r + img2 * (1 - r)).astype(np.uint8)
-                labels = np.concatenate([labels, labels2], 0)
-
+                
+        if mixup_flag:
+            r = np.random.beta(8.0, 8.0)
+            img = (img * r + img2 * (1 - r)).astype(np.uint8)
+            labels = np.concatenate((labels, labels2), 0)
+            
+            
         if self.augment:
-            # Augment imagespace
-            if not self.mosaic:
-                img, labels = random_perspective(
-                    img,
-                    labels,
-                    degrees=hyp['degrees'],
-                    translate=hyp['translate'],
-                    scale=hyp['scale'],
-                    shear=hyp['shear'],
-                    perspective=hyp['perspective'])
+            img, labels = random_perspective(img, labels,
+                                               degrees=self.hyp['degrees'],
+                                               translate=self.hyp['translate'],
+                                               scale=self.hyp['scale'],
+                                               shear=self.hyp['shear'],
+                                               perspective=self.hyp['perspective'],
+                                               border=self.mosaic_border if self.mosaic else (0, 0)) 
 
             # Augment colorspace
-            augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
+            augment_hsv(img, hgain=self.hyp['hsv_h'], sgain=self.hyp['hsv_s'], vgain=self.hyp['hsv_v'])
 
             # Apply cutouts
-            # if random.random() < 0.9:
-            #     labels = cutout(img, labels)
+            if random.random() < self.hyp['cutout']:
+                labels = cutout(img, labels)
 
         nL = len(labels)  # number of labels
         if nL:
@@ -584,13 +315,13 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         if self.augment:
             # flip up-down
-            if random.random() < hyp['flipud']:
+            if random.random() < self.hyp['flipud']:
                 img = np.flipud(img)
                 if nL:
                     labels[:, 2] = 1 - labels[:, 2]
 
             # flip left-right
-            if random.random() < hyp['fliplr']:
+            if random.random() < self.hyp['fliplr']:
                 img = np.fliplr(img)
                 if nL:
                     labels[:, 1] = 1 - labels[:, 1]
@@ -626,6 +357,57 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         if len(labels) == 0:
             labels = np.zeros((0,5))
         return img, labels, shapes
+    
+    def load_mosaic(self, index):
+        # loads images in a mosaic
+
+        labels4 = []
+        s = self.img_size
+        yc, xc = s, s  # mosaic center x, y
+        indices = [index] + [random.randint(0, len(self.labels) - 1) for _ in range(3)]  # 3 additional image indices
+        for i, index in enumerate(indices):
+            # Load image
+            img, _, (h, w) = load_image(self, index)
+
+            # place img in img4
+            if i == 0:  # top left
+                img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
+                x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
+                x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
+            elif i == 1:  # top right
+                x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, s * 2), yc
+                x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
+            elif i == 2:  # bottom left
+                x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(s * 2, yc + h)
+                x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, max(xc, w), min(y2a - y1a, h)
+            elif i == 3:  # bottom right
+                x1a, y1a, x2a, y2a = xc, yc, min(xc + w, s * 2), min(s * 2, yc + h)
+                x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
+
+            img4[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
+            padw = x1a - x1b
+            padh = y1a - y1b
+
+            # Labels
+            x = self.labels[index]
+            labels = x.copy()
+            if x.size > 0:  # Normalized xywh to pixel xyxy format
+                labels[:, 1] = w * (x[:, 1] - x[:, 3] / 2) + padw
+                labels[:, 2] = h * (x[:, 2] - x[:, 4] / 2) + padh
+                labels[:, 3] = w * (x[:, 1] + x[:, 3] / 2) + padw
+                labels[:, 4] = h * (x[:, 2] + x[:, 4] / 2) + padh
+            labels4.append(labels)
+        # Concat/clip labels
+        if len(labels4):
+            labels4 = np.concatenate(labels4, 0)
+            # np.clip(labels4[:, 1:] - s / 2, 0, s, out=labels4[:, 1:])  # use with center crop
+            np.clip(labels4[:, 1:], 0, 2 * s, out=labels4[:, 1:])  # use with random_affine
+
+            # Replicate
+            # img4, labels4 = replicate(img4, labels4)
+ # border to remove
+
+        return img4, labels4
     
     @staticmethod
     def collate_fn(batch):
@@ -670,70 +452,6 @@ def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
     # if random.random() < 0.2:
     #     for i in range(3):
     #         img[:, :, i] = cv2.equalizeHist(img[:, :, i])
-
-
-def load_mosaic(self, index):
-    # loads images in a mosaic
-
-    labels4 = []
-    s = self.img_size
-    yc, xc = s, s  # mosaic center x, y
-    indices = [index] + [random.randint(0, len(self.labels) - 1) for _ in range(3)]  # 3 additional image indices
-    for i, index in enumerate(indices):
-        # Load image
-        img, _, (h, w) = load_image(self, index)
-
-        # place img in img4
-        if i == 0:  # top left
-            img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
-            x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
-            x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
-        elif i == 1:  # top right
-            x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, s * 2), yc
-            x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
-        elif i == 2:  # bottom left
-            x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(s * 2, yc + h)
-            x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, max(xc, w), min(y2a - y1a, h)
-        elif i == 3:  # bottom right
-            x1a, y1a, x2a, y2a = xc, yc, min(xc + w, s * 2), min(s * 2, yc + h)
-            x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
-
-        img4[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
-        padw = x1a - x1b
-        padh = y1a - y1b
-
-        # Labels
-        x = self.labels[index]
-        labels = x.copy()
-        if x.size > 0:  # Normalized xywh to pixel xyxy format
-            labels[:, 1] = w * (x[:, 1] - x[:, 3] / 2) + padw
-            labels[:, 2] = h * (x[:, 2] - x[:, 4] / 2) + padh
-            labels[:, 3] = w * (x[:, 1] + x[:, 3] / 2) + padw
-            labels[:, 4] = h * (x[:, 2] + x[:, 4] / 2) + padh
-        labels4.append(labels)
-
-    # Concat/clip labels
-    if len(labels4):
-        labels4 = np.concatenate(labels4, 0)
-        # np.clip(labels4[:, 1:] - s / 2, 0, s, out=labels4[:, 1:])  # use with center crop
-        np.clip(labels4[:, 1:], 0, 2 * s, out=labels4[:, 1:])  # use with random_affine
-
-        # Replicate
-        # img4, labels4 = replicate(img4, labels4)
-
-    # Augment
-    # img4 = img4[s // 2: int(s * 1.5), s // 2:int(s * 1.5)]  # center crop (WARNING, requires box pruning)
-    img4, labels4 = random_perspective(
-        img4,
-        labels4,
-        degrees=self.hyp['degrees'],
-        translate=self.hyp['translate'],
-        scale=self.hyp['scale'],
-        shear=self.hyp['shear'],
-        perspective=self.hyp['perspective'],
-        border=self.mosaic_border)  # border to remove
-
-    return img4, labels4
 
 
 def replicate(img, labels):
@@ -925,44 +643,6 @@ def cutout(image, labels):
             labels = labels[ioa < 0.60]  # remove >60% obscured labels
 
     return labels
-
-
-def reduce_img_size(path='path/images', img_size=1024):  # from utils.datasets import *; reduce_img_size()
-    # creates a new ./images_reduced folder with reduced size images of maximum size img_size
-    path_new = path + '_reduced'  # reduced images path
-    create_folder(path_new)
-    for f in tqdm(glob.glob('%s/*.*' % path)):
-        try:
-            img = cv2.imread(f)
-            h, w = img.shape[:2]
-            r = img_size / max(h, w)  # size ratio
-            if r < 1.0:
-                img = cv2.resize(img, (int(w * r), int(h * r)), interpolation=cv2.INTER_AREA)  # _LINEAR fastest
-            fnew = f.replace(path, path_new)  # .replace(Path(f).suffix, '.jpg')
-            cv2.imwrite(fnew, img)
-        except:
-            print('WARNING: image failure %s' % f)
-
-
-def recursive_dataset2bmp(dataset='path/dataset_bmp'):  # from utils.datasets import *; recursive_dataset2bmp()
-    # Converts dataset to bmp (for faster training)
-    formats = [x.lower() for x in img_formats] + [x.upper() for x in img_formats]
-    for a, b, files in os.walk(dataset):
-        for file in tqdm(files, desc=a):
-            p = a + '/' + file
-            s = Path(file).suffix
-            if s == '.txt':  # replace text
-                with open(p, 'r') as f:
-                    lines = f.read()
-                for f in formats:
-                    lines = lines.replace(f, '.bmp')
-                with open(p, 'w') as f:
-                    f.write(lines)
-            elif s in formats:  # replace image
-                cv2.imwrite(p.replace(s, '.bmp'), cv2.imread(p))
-                if s != '.bmp':
-                    os.system("rm '%s'" % p)
-
 
 def imagelist2folder(path='path/images.txt'):  # from utils.datasets import *; imagelist2folder()
     # Copies all the images in a text file (list of images) into a folder
