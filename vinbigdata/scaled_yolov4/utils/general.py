@@ -21,7 +21,7 @@ import yaml
 from scipy.cluster.vq import kmeans
 from scipy.signal import butter, filtfilt
 from tqdm import tqdm
-from utils.torch_utils import init_seeds, is_parallel
+from vinbigdata.scaled_yolov4.utils.torch_utils import init_seeds, is_parallel
 
 # Set printoptions
 torch.set_printoptions(linewidth=320, precision=5, profile='long')
@@ -54,14 +54,6 @@ def get_latest_run(search_dir='./runs'):
     # Return path to most recent 'last.pt' in /runs (i.e. to --resume from)
     last_list = glob.glob(f'{search_dir}/**/last*.pt', recursive=True)
     return max(last_list, key=os.path.getctime)
-
-
-def check_git_status():
-    # Suggest 'git pull' if repo is out of date
-    if platform in ['linux', 'darwin'] and not os.path.isfile('/.dockerenv'):
-        s = subprocess.check_output('if [ -d .git ]; then git fetch && git status -uno; fi', shell=True).decode('utf-8')
-        if 'Your branch is behind' in s:
-            print(s[s.find('Your branch is behind'):s.find('\n\n')] + '\n')
 
 
 def check_img_size(img_size, s=32):
@@ -158,20 +150,6 @@ def labels_to_image_weights(labels, nc=80, class_weights=np.ones(80)):
     image_weights = (class_weights.reshape(1, nc) * class_counts).sum(1)
     # index = random.choices(range(n), weights=image_weights, k=1)  # weight image sample
     return image_weights
-
-
-def coco80_to_coco91_class():  # converts 80-index (val2014) to 91-index (paper)
-    # https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/
-    # a = np.loadtxt('data/coco.names', dtype='str', delimiter='\n')
-    # b = np.loadtxt('data/coco_paper.names', dtype='str', delimiter='\n')
-    # x1 = [list(a[i] == b).index(True) + 1 for i in range(80)]  # darknet to coco
-    # x2 = [list(b[i] == a).index(True) if any(b[i] == a) else None for i in range(91)]  # coco to darknet
-    x = [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27, 28, 31, 32, 33, 34,
-        35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
-        64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90
-    ]
-    return x
 
 
 def xyxy2xywh(x):
@@ -506,7 +484,7 @@ def compute_loss(p, targets, model):  # predictions, targets, model
 
 def build_targets(p, targets, model):
     # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
-    det = model.module.model[-1] if is_parallel(model) else model.model[-1]  # Detect() module
+    det = model.module.model[-1] if hasattr(model, 'module') else model.model[-1]  # Detect() module
     na, nt = det.na, targets.shape[0]  # number of anchors, targets
     tcls, tbox, indices, anch = [], [], [], []
     gain = torch.ones(7, device=targets.device)  # normalized to gridspace gain
@@ -752,103 +730,6 @@ def box_diou(boxes1, boxes2):
     return inter / (area1[:, None] + area2 - inter) - (d / c)**0.6  # iou = inter / (area1 + area2 - inter)
 
 
-# For batch mode Cluster-Weighted NMS
-def non_max_suppression2(prediction,
-                         conf_thres=0.1,
-                         iou_thres=0.6,
-                         max_box=1500,
-                         merge=False,
-                         classes=None,
-                         agnostic=False):
-    """Performs Non-Maximum Suppression (NMS) on inference results
-    Returns:
-         detections with shape: nx6 (x1, y1, x2, y2, conf, cls)
-    """
-    if prediction.dtype is torch.float16:
-        prediction = prediction.float()  # to FP32
-
-    nc = prediction[0].shape[1] - 5  # number of classes
-    xc = prediction[..., 4] > conf_thres  # candidates
-
-    # Settings
-    min_wh, max_wh = 2, 4096  # (pixels) minimum and maximum box width and height
-    max_det = 300  # maximum number of detections per image
-    time_limit = 10.0  # seconds to quit after
-    redundant = True  # require redundant detections
-    multi_label = nc > 1  # multiple labels per box (adds 0.5ms/img)
-
-    t = time.time()
-    output = [None] * prediction.shape[0]
-    pred1 = (prediction < -1
-             ).float()[:, :max_box, :6]  # pred1.size()=[batch, max_box, max_box] denotes boxes without offset by class
-    pred2 = pred1[:, :, :4] + 0  # pred2 denotes boxes with offset by class
-    batch_size = prediction.shape[0]
-    for xi, x in enumerate(prediction):  # image index, image inference
-        # Apply constraints
-        # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
-        x = x[xc[xi]]  # confidence
-
-        # If none remain process next image
-        if not x.shape[0]:
-            continue
-
-        # Compute conf
-        x[:, 5:] *= x[:, 4:5]  # conf = obj_conf * cls_conf
-
-        # Box (center x, center y, width, height) to (x1, y1, x2, y2)
-        box = xywh2xyxy(x[:, :4])
-
-        # Detections matrix nx6 (xyxy, conf, cls)
-        if multi_label:
-            i, j = (x[:, 5:] > conf_thres).nonzero(as_tuple=False).T
-            x = torch.cat((box[i], x[i, j + 5, None], j[:, None].float()), 1)
-        else:  # best class only
-            conf, j = x[:, 5:].max(1, keepdim=True)
-            x = torch.cat((box, conf, j.float()), 1)[conf.view(-1) > conf_thres]
-
-        # Filter by class
-        if classes:
-            x = x[(x[:, 5:6] == torch.tensor(classes, device=x.device)).any(1)]
-
-        # Apply finite constraint
-        # if not torch.isfinite(x).all():
-        #     x = x[torch.isfinite(x).all(1)]
-
-        # If none remain process next image
-        n = x.shape[0]  # number of boxes
-        if not n:
-            continue
-
-        # Sort by confidence
-        x = x[x[:, 4].argsort(descending=True)]
-        c = x[:, 5] * 0 if agnostic else x[:, 5]  # classes
-
-        boxes = (x[:, :4].clone() + c.view(-1, 1) * max_wh)[:max_box]  # boxes (offset by class), scores
-        pred2[xi, :] = torch.cat((boxes, pred2[xi, :]), 0)[:max_box]  # If less than max_box, padding 0.
-        pred1[xi, :] = torch.cat((x[:max_box], pred1[xi, :]), 0)[:max_box]
-
-    # Batch mode Cluster-Weighted NMS
-
-    iou = jaccard_diou(pred2, pred2).triu_(diagonal=1)  # switch to 'jaccard_diou' function for using Cluster-DIoU-NMS
-    B = iou
-    for i in range(200):
-        A = B
-        maxA = A.max(dim=1)[0]
-        E = (maxA < iou_thres).float().unsqueeze(2).expand_as(A)
-        B = iou.mul(E)
-        if A.equal(B) == True:
-            break
-    keep = (maxA <= iou_thres)
-    weights = (B * (B > 0.8) + torch.eye(max_box).cuda().expand(batch_size, max_box, max_box)) * (
-        pred1[:, :, 4].reshape((batch_size, 1, max_box)))
-    pred1[:, :, :4] = torch.matmul(weights, pred1[:, :, :4]) / weights.sum(2, keepdim=True)  # weighted coordinates
-
-    for jj in range(batch_size):
-        output[jj] = pred1[jj][keep[jj]]
-
-    return output
-
-
 def strip_optimizer(f='weights/best.pt', s=''):  # from utils.utils import *; strip_optimizer()
     # Strip optimizer from 'f' to finalize training, optionally save as 's'
     x = torch.load(f, map_location=torch.device('cpu'))
@@ -861,26 +742,6 @@ def strip_optimizer(f='weights/best.pt', s=''):  # from utils.utils import *; st
     torch.save(x, s or f)
     mb = os.path.getsize(s or f) / 1E6  # filesize
     print('Optimizer stripped from %s,%s %.1fMB' % (f, (' saved as %s,' % s) if s else '', mb))
-
-
-def coco_class_count(path='../coco/labels/train2014/'):
-    # Histogram of occurrences per class
-    nc = 80  # number classes
-    x = np.zeros(nc, dtype='int32')
-    files = sorted(glob.glob('%s/*.*' % path))
-    for i, file in enumerate(files):
-        labels = np.loadtxt(file, dtype=np.float32).reshape(-1, 5)
-        x += np.bincount(labels[:, 0].astype('int32'), minlength=nc)
-        print(i, len(files))
-
-
-def coco_only_people(path='../coco/labels/train2017/'):  # from utils.utils import *; coco_only_people()
-    # Find images with only people
-    files = sorted(glob.glob('%s/*.*' % path))
-    for i, file in enumerate(files):
-        labels = np.loadtxt(file, dtype=np.float32).reshape(-1, 5)
-        if all(labels[:, 0] == 0):
-            print(labels.shape[0], file)
 
 
 def crop_images_random(path='../images/', scale=0.50):  # from utils.utils import *; crop_images_random()
@@ -904,28 +765,6 @@ def crop_images_random(path='../images/', scale=0.50):  # from utils.utils impor
 
             # apply random color mask
             cv2.imwrite(file, img[ymin:ymax, xmin:xmax])
-
-
-def coco_single_class_labels(path='../coco/labels/train2014/', label_class=43):
-    # Makes single-class coco datasets. from utils.utils import *; coco_single_class_labels()
-    if os.path.exists('new/'):
-        shutil.rmtree('new/')  # delete output folder
-    os.makedirs('new/')  # make new output folder
-    os.makedirs('new/labels/')
-    os.makedirs('new/images/')
-    for file in tqdm(sorted(glob.glob('%s/*.*' % path))):
-        with open(file, 'r') as f:
-            labels = np.array([x.split() for x in f.read().splitlines()], dtype=np.float32)
-        i = labels[:, 0] == label_class
-        if any(i):
-            img_file = file.replace('labels', 'images').replace('txt', 'jpg')
-            labels[:, 0] = 0  # reset class to 0
-            with open('new/images.txt', 'a') as f:  # add image to dataset list
-                f.write(img_file + '\n')
-            with open('new/labels/' + Path(file).name, 'a') as f:  # write label
-                for l in labels[i]:
-                    f.write('%g %.6f %.6f %.6f %.6f\n' % tuple(l))
-            shutil.copyfile(src=img_file, dst='new/images/' + Path(file).name.replace('txt', 'jpg'))  # copy images
 
 
 def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=1000, verbose=True):
@@ -1027,70 +866,6 @@ def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=10
                 print_results(k)
 
     return print_results(k)
-
-
-def print_mutation(hyp, results, yaml_file='hyp_evolved.yaml', bucket=''):
-    # Print mutation results to evolve.txt (for use with train.py --evolve)
-    a = '%10s' * len(hyp) % tuple(hyp.keys())  # hyperparam keys
-    b = '%10.3g' * len(hyp) % tuple(hyp.values())  # hyperparam values
-    c = '%10.4g' * len(results) % results  # results (P, R, mAP@0.5, mAP@0.5:0.95, val_losses x 3)
-    print('\n%s\n%s\nEvolved fitness: %s\n' % (a, b, c))
-
-    if bucket:
-        os.system('gsutil cp gs://%s/evolve.txt .' % bucket)  # download evolve.txt
-
-    with open('evolve.txt', 'a') as f:  # append result
-        f.write(c + b + '\n')
-    x = np.unique(np.loadtxt('evolve.txt', ndmin=2), axis=0)  # load unique rows
-    x = x[np.argsort(-fitness(x))]  # sort
-    np.savetxt('evolve.txt', x, '%10.3g')  # save sort by fitness
-
-    if bucket:
-        os.system('gsutil cp evolve.txt gs://%s' % bucket)  # upload evolve.txt
-
-    # Save yaml
-    for i, k in enumerate(hyp.keys()):
-        hyp[k] = float(x[0, i + 7])
-    with open(yaml_file, 'w') as f:
-        results = tuple(x[0, :7])
-        c = '%10.4g' * len(results) % results  # results (P, R, mAP@0.5, mAP@0.5:0.95, val_losses x 3)
-        f.write('# Hyperparameter Evolution Results\n# Generations: %g\n# Metrics: ' % len(x) + c + '\n\n')
-        yaml.dump(hyp, f, sort_keys=False)
-
-
-def apply_classifier(x, model, img, im0):
-    # applies a second stage classifier to yolo outputs
-    im0 = [im0] if isinstance(im0, np.ndarray) else im0
-    for i, d in enumerate(x):  # per image
-        if d is not None and len(d):
-            d = d.clone()
-
-            # Reshape and pad cutouts
-            b = xyxy2xywh(d[:, :4])  # boxes
-            b[:, 2:] = b[:, 2:].max(1)[0].unsqueeze(1)  # rectangle to square
-            b[:, 2:] = b[:, 2:] * 1.3 + 30  # pad
-            d[:, :4] = xywh2xyxy(b).long()
-
-            # Rescale boxes from img_size to im0 size
-            scale_coords(img.shape[2:], d[:, :4], im0[i].shape)
-
-            # Classes
-            pred_cls1 = d[:, 5].long()
-            ims = []
-            for j, a in enumerate(d):  # per item
-                cutout = im0[i][int(a[1]):int(a[3]), int(a[0]):int(a[2])]
-                im = cv2.resize(cutout, (224, 224))  # BGR
-                # cv2.imwrite('test%i.jpg' % j, cutout)
-
-                im = im[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
-                im = np.ascontiguousarray(im, dtype=np.float32)  # uint8 to float32
-                im /= 255.0  # 0 - 255 to 0.0 - 1.0
-                ims.append(im)
-
-            pred_cls2 = model(torch.Tensor(ims).to(d.device)).argmax(1)  # classifier prediction
-            x[i] = x[i][pred_cls1 == pred_cls2]  # retain matching class detections
-
-    return x
 
 
 def fitness(x):
@@ -1321,48 +1096,6 @@ def plot_targets_txt():  # from utils.utils import *; plot_targets_txt()
         ax[i].legend()
         ax[i].set_title(s[i])
     plt.savefig('targets.jpg', dpi=200)
-
-
-def plot_study_txt(f='study.txt', x=None):  # from utils.utils import *; plot_study_txt()
-    # Plot study.txt generated by test.py
-    fig, ax = plt.subplots(2, 4, figsize=(10, 6), tight_layout=True)
-    ax = ax.ravel()
-
-    fig2, ax2 = plt.subplots(1, 1, figsize=(8, 4), tight_layout=True)
-    for f in ['']:
-        y = np.loadtxt(f, dtype=np.float32, usecols=[0, 1, 2, 3, 7, 8, 9], ndmin=2).T
-        x = np.arange(y.shape[1]) if x is None else np.array(x)
-        s = ['P', 'R', 'mAP@.5', 'mAP@.5:.95', 't_inference (ms/img)', 't_NMS (ms/img)', 't_total (ms/img)']
-        for i in range(7):
-            ax[i].plot(x, y[i], '.-', linewidth=2, markersize=8)
-            ax[i].set_title(s[i])
-
-        j = y[3].argmax() + 1
-        ax2.plot(
-            y[6, :j],
-            y[3, :j] * 1E2,
-            '.-',
-            linewidth=2,
-            markersize=8,
-            label=Path(f).stem.replace('study_coco_', '').replace('yolo', 'YOLO'))
-
-    ax2.plot(
-        1E3 / np.array([209, 140, 97, 58, 35, 18]), [33.8, 39.6, 43.0, 47.5, 49.4, 50.7],
-        'k.-',
-        linewidth=2,
-        markersize=8,
-        alpha=.25,
-        label='EfficientDet')
-
-    ax2.grid()
-    ax2.set_xlim(0, 30)
-    ax2.set_ylim(28, 50)
-    ax2.set_yticks(np.arange(30, 55, 5))
-    ax2.set_xlabel('GPU Speed (ms/img)')
-    ax2.set_ylabel('COCO AP val')
-    ax2.legend(loc='lower right')
-    plt.savefig('study_mAP_latency.png', dpi=300)
-    plt.savefig(f.replace('.txt', '.png'), dpi=200)
 
 
 def plot_labels(labels, save_dir=''):

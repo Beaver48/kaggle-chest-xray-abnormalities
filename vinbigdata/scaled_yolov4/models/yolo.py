@@ -5,11 +5,11 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from models.common import *
-from models.experimental import C3, CrossConv, MixConv2d
-from utils.general import check_anchor_order, check_file, make_divisible
-from utils.torch_utils import (fuse_conv_and_bn, initialize_weights, model_info, scale_img, select_device,
-                               time_synchronized)
+from vinbigdata.scaled_yolov4.models.common import *
+from vinbigdata.scaled_yolov4.models.experimental import C3, CrossConv, MixConv2d
+from vinbigdata.scaled_yolov4.utils.general import check_anchor_order, check_file, make_divisible
+from vinbigdata.scaled_yolov4.utils.torch_utils import (fuse_conv_and_bn, initialize_weights, model_info, scale_img,
+                                                        select_device, time_synchronized)
 
 
 class Detect(nn.Module):

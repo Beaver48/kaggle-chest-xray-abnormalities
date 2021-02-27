@@ -5,20 +5,21 @@ import random
 import shutil
 import time
 from pathlib import Path
+
 import cv2
 import numpy as np
 import torch
-from PIL import Image, ExifTags
+from PIL import ExifTags, Image
 from torch.utils.data import Dataset
 from tqdm import tqdm
-
-from utils.general import xyxy2xywh, xywh2xyxy, torch_distributed_zero_first
+from vinbigdata.scaled_yolov4.utils.general import torch_distributed_zero_first, xywh2xyxy, xyxy2xywh
 
 img_formats = ['.bmp', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.dng']
 
 for orientation in ExifTags.TAGS.keys():
     if ExifTags.TAGS[orientation] == 'Orientation':
         break
+
 
 def exif_size(img):
     # Returns exif-corrected PIL size
@@ -34,38 +35,65 @@ def exif_size(img):
 
     return s
 
+
 def get_hash(files):
     # Returns a single hash value of a list of files
     return sum(os.path.getsize(f) for f in files if os.path.isfile(f))
 
-def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=False, cache=False, pad=0.0, rect=False,
-                      local_rank=-1, world_size=1):
+
+def create_dataloader(path,
+                      imgsz,
+                      batch_size,
+                      stride,
+                      opt,
+                      hyp=None,
+                      augment=False,
+                      cache=False,
+                      pad=0.0,
+                      rect=False,
+                      local_rank=-1,
+                      world_size=1):
     # Make sure only the first process in DDP process the dataset first, and the following others can use the cache.
     with torch_distributed_zero_first(local_rank):
-        dataset = LoadImagesAndLabels(path, imgsz, batch_size,
-                                      augment=augment,  # augment images
-                                      hyp=hyp,  # augmentation hyperparameters
-                                      rect=rect,  # rectangular training
-                                      cache_images=cache,
-                                      single_cls=opt.single_cls,
-                                      stride=int(stride),
-                                      pad=pad)
+        dataset = LoadImagesAndLabels(
+            path,
+            imgsz,
+            batch_size,
+            augment=augment,  # augment images
+            hyp=hyp,  # augmentation hyperparameters
+            rect=rect,  # rectangular training
+            cache_images=cache,
+            single_cls=False,
+            stride=int(stride),
+            pad=pad)
 
     batch_size = min(batch_size, len(dataset))
     nw = min([os.cpu_count() // world_size, batch_size if batch_size > 1 else 0, 8])  # number of workers
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset) if local_rank != -1 else None
-    dataloader = torch.utils.data.DataLoader(dataset,
-                                             batch_size=batch_size,
-                                             num_workers=nw,
-                                             sampler=train_sampler,
-                                             pin_memory=True,
-                                             collate_fn=LoadImagesAndLabels.collate_fn)
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=nw,
+        sampler=train_sampler,
+        pin_memory=True,
+        collate_fn=LoadImagesAndLabels.collate_fn)
     return dataloader, dataset
 
 
 class LoadImagesAndLabels(Dataset):  # for training/testing
-    def __init__(self, path, img_size=640, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
-                 cache_images=False, single_cls=False, stride=32, pad=0.0):
+
+    def __init__(self,
+                 path,
+                 img_size=640,
+                 batch_size=16,
+                 augment=False,
+                 hyp=None,
+                 rect=False,
+                 image_weights=False,
+                 cache_images=False,
+                 single_cls=False,
+                 stride=32,
+                 pad=0.0):
         try:
             f = []  # image files
             for p in path if isinstance(path, list) else [path]:
@@ -105,17 +133,17 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         def get_bbox_count(file_name):
             with open(file_name, 'r') as reader:
                 return len(reader.readlines())
-            
-        
-        label_files = [x.replace('JPEGImages', 'labels').replace(os.path.splitext(x)[-1], '.txt') for x in
-                            self.img_files]
+
+        label_files = [
+            x.replace('JPEGImages', 'labels').replace(os.path.splitext(x)[-1], '.txt') for x in self.img_files
+        ]
         if augment:
             label_files = [(file, get_bbox_count(file)) for file in label_files]
             np.random.seed(1305)
-            normal_files =  [file[0] for file in label_files if file[1] == 0]
+            normal_files = [file[0] for file in label_files if file[1] == 0]
             np.random.shuffle(normal_files)
 
-            abnormal_files =  [file[0] for file in label_files if file[1] != 0]
+            abnormal_files = [file[0] for file in label_files if file[1] != 0]
             self.label_files = abnormal_files + normal_files[:self.hyp['normal_image_count']]
             np.random.shuffle(self.label_files)
             st = set([Path(f).stem for f in self.label_files])
@@ -169,6 +197,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                     shapes[i] = [1, 1 / mini]
 
             self.batch_shapes = np.ceil(np.array(shapes) * img_size / stride + pad).astype(np.int) * stride
+            print(self.batch_shapes)
 
         # Cache labels
         create_datasubset, extract_bounding_boxes, labels_loaded = False, False, False
@@ -270,35 +299,36 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
     def __getitem__(self, index):
         if self.image_weights:
             index = self.indices[index]
-        
+
         # MixUp https://arxiv.org/pdf/1710.09412.pdf
         mixup_flag = random.random() < self.hyp['mixup'] if self.hyp is not None else False
         if self.mosaic:
             img, labels = self.load_mosaic(index)
             shapes = None
-            if mixup_flag:
+            if mixup_flag and self.augment:
                 index_mixup = random.randint(0, len(self.labels) - 1)
                 img2, labels2 = self.load_mosaic(index_mixup)
         else:
             img, labels, shapes = self.load_image_and_labels(index)
-            if mixup_flag:
+            if mixup_flag and self.augment:
                 index_mixup = random.randint(0, len(self.labels) - 1)
                 img2, labels2, _ = self.load_image_and_labels(index_mixup)
-                
-        if mixup_flag:
+
+        if mixup_flag and self.augment:
             r = np.random.beta(8.0, 8.0)
             img = (img * r + img2 * (1 - r)).astype(np.uint8)
             labels = np.concatenate((labels, labels2), 0)
-            
-            
+
         if self.augment:
-            img, labels = random_perspective(img, labels,
-                                               degrees=self.hyp['degrees'],
-                                               translate=self.hyp['translate'],
-                                               scale=self.hyp['scale'],
-                                               shear=self.hyp['shear'],
-                                               perspective=self.hyp['perspective'],
-                                               border=self.mosaic_border if self.mosaic else (0, 0)) 
+            img, labels = random_perspective(
+                img,
+                labels,
+                degrees=self.hyp['degrees'],
+                translate=self.hyp['translate'],
+                scale=self.hyp['scale'],
+                shear=self.hyp['shear'],
+                perspective=self.hyp['perspective'],
+                border=self.mosaic_border if self.mosaic else (0, 0))
 
             # Augment colorspace
             augment_hsv(img, hgain=self.hyp['hsv_h'], sgain=self.hyp['hsv_s'], vgain=self.hyp['hsv_v'])
@@ -355,9 +385,9 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             labels[:, 3] = ratio[0] * w * (x[:, 1] + x[:, 3] / 2) + pad[0]
             labels[:, 4] = ratio[1] * h * (x[:, 2] + x[:, 4] / 2) + pad[1]
         if len(labels) == 0:
-            labels = np.zeros((0,5))
+            labels = np.zeros((0, 5))
         return img, labels, shapes
-    
+
     def load_mosaic(self, index):
         # loads images in a mosaic
 
@@ -405,10 +435,10 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
             # Replicate
             # img4, labels4 = replicate(img4, labels4)
- # border to remove
+# border to remove
 
         return img4, labels4
-    
+
     @staticmethod
     def collate_fn(batch):
         img, label, path, shapes = zip(*batch)  # transposed
@@ -643,6 +673,7 @@ def cutout(image, labels):
             labels = labels[ioa < 0.60]  # remove >60% obscured labels
 
     return labels
+
 
 def imagelist2folder(path='path/images.txt'):  # from utils.datasets import *; imagelist2folder()
     # Copies all the images in a text file (list of images) into a folder
