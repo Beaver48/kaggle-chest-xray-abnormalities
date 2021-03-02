@@ -19,6 +19,6 @@ shear: 0.0  # image shear (+/- deg)
 perspective: 0.0  # image perspective (+/- fraction), range 0-0.001
 flipud: 0.0  # image flip up-down (probability)
 fliplr: 0.5  # image flip left-right (probability)
-mixup: 0.0  # image mixup (probability)
+mixup: 0.2  # image mixup (probability)
 cutout: 0.0  # image cutout (probability)
 normal_image_count: 1000  # Count of normal images during training

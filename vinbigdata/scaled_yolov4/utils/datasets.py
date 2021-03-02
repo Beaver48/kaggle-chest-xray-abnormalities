@@ -159,7 +159,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             self.batch = bi  # batch index of image
         else:
             self.label_files = label_files
-
         # Check cache
         cache_path = str(Path(self.label_files[0]).parent) + '.cache'  # cached labels
         if os.path.isfile(cache_path):
@@ -253,7 +252,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             pbar.desc = 'Scanning labels %s (%g found, %g missing, %g empty, %g duplicate, for %g images)' % (
                 cache_path, nf, nm, ne, nd, n)
         if nf == 0:
-            s = 'WARNING: No labels found in %s. See %s' % (os.path.dirname(file) + os.sep, help_url)
+            s = 'WARNING: No labels found in %s. ' % (os.path.dirname(file) + os.sep)
             print(s)
             assert not augment, '%s. Can not train without labels.' % s
 

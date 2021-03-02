@@ -91,7 +91,6 @@ def evaluate(
             inf_out, train_out = model(img, augment=augment)  # inference and training outputs
             #inf_out, train_out = model(img.to(memory_format=torch.channels_last), augment=augment)  # inference and training outputs
             t0 += time_synchronized() - t
-
             # Compute loss
             if training:  # if model has loss hyperparameters
                 loss += compute_loss([x.float() for x in train_out], targets, model)[1][:3]  # GIoU, obj, cls

@@ -44,7 +44,7 @@ def batch_inference(models: List[Dict[str, str]], ids_file: str) -> List[Tuple[s
                 print(res[-100:])
             results.append((model_data['model'], model_data['type'], ids_file, file_name))
         elif model_data['type'] == 'scaled_yolo':
-            command = 'python ScaledYOLOv4/test.py --img {} --conf 0.0001 --batch 8 --device 0 --data {} \
+            command = 'PYTHONPATH=. python scripts/test_yolo.py --img {} --conf 0.0001 --batch 8 --device 0 --data {} \
                 --weights {} --verbose --save-json --task={} --result-file={}'
 
             file_name = 'results/data/result-{}-{}.json'.format(model_hash, ids_hash)
