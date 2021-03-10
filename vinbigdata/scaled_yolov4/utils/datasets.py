@@ -319,16 +319,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             labels = np.concatenate((labels, labels2), 0)
 
         if self.augment:
-            img, labels = random_perspective(
-                img,
-                labels,
-                degrees=self.hyp['degrees'],
-                translate=self.hyp['translate'],
-                scale=self.hyp['scale'],
-                shear=self.hyp['shear'],
-                perspective=self.hyp['perspective'],
-                border=self.mosaic_border if self.mosaic else (0, 0))
-
             # Augment colorspace
             augment_hsv(img, hgain=self.hyp['hsv_h'], sgain=self.hyp['hsv_s'], vgain=self.hyp['hsv_v'])
 
@@ -385,6 +375,15 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             labels[:, 4] = ratio[1] * h * (x[:, 2] + x[:, 4] / 2) + pad[1]
         if len(labels) == 0:
             labels = np.zeros((0, 5))
+        if self.augment:
+            img, labels = random_perspective(
+                img,
+                labels,
+                degrees=self.hyp['degrees'],
+                translate=self.hyp['translate'],
+                scale=self.hyp['scale'],
+                shear=self.hyp['shear'],
+                perspective=self.hyp['perspective'])
         return img, labels, shapes
 
     def load_mosaic(self, index):
@@ -431,10 +430,18 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             labels4 = np.concatenate(labels4, 0)
             # np.clip(labels4[:, 1:] - s / 2, 0, s, out=labels4[:, 1:])  # use with center crop
             np.clip(labels4[:, 1:], 0, 2 * s, out=labels4[:, 1:])  # use with random_affine
-
-            # Replicate
-            # img4, labels4 = replicate(img4, labels4)
-# border to remove
+        img4, labels4 = random_perspective(
+            img4,
+            labels4,
+            degrees=self.hyp['degrees'],
+            translate=self.hyp['translate'],
+            scale=self.hyp['scale'],
+            shear=self.hyp['shear'],
+            perspective=self.hyp['perspective'],
+            border=self.mosaic_border)
+        # Replicate
+        # img4, labels4 = replicate(img4, labels4)
+        # border to remove
 
         return img4, labels4
 
