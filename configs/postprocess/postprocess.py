@@ -12,9 +12,14 @@ config = dict(
             img_shape=1024),  # 0.457 local dirty cv, 0.285 leaderboard
         dict(
             type='scaled_yolo',
-            model='results/models/scaled_yolo_normal-1000_epoch-160_vin_nih.pt',
+            model='results/models/scaled_yolo_normal-1000_epoch-150_vin_custom.pt',
             config='configs/yolo/data.yaml',
-            img_shape=1024),  # 0.466 local dirty cv, 0.253 leaderboard
+            img_shape=1024) # 0.445 local dirty cv, 0.282 leaderboard
+        #dict(
+        #    type='scaled_yolo',
+        #    model='results/models/scaled_yolo_normal-1000_epoch-160_vin_nih.pt',
+        #    config='configs/yolo/data.yaml',
+        #    img_shape=1024),  # 0.466 local dirty cv, 0.253 leaderboard
     ],
     meta_file_path='data/processed/vinbigdataVOC2012/train.csv',
     test_meta_file_path='data/processed/vinbigdataVOC2012/test.csv',

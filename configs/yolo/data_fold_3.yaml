@@ -1,0 +1,9 @@
+train: /workdir/data/processed/vinbigdataVOC2012/yolo_image_sets/train_vin_fold_3.txt
+val: /workdir/data/processed/vinbigdataVOC2012/yolo_image_sets/val_fold_3.txt
+test: /workdir/data/processed/vinbigdataVOC2012/yolo_image_sets/test.txt
+
+nc: 14
+
+names: ['Cardiomegaly', 'Aortic enlargement', 'Pleural thickening', 'ILD', 'Nodule/Mass', 'Pulmonary fibrosis',
+           'Lung Opacity', 'Atelectasis', 'Other lesion', 'Infiltration', 'Pleural effusion', 'Calcification',
+           'Consolidation', 'Pneumothorax']

@@ -136,10 +136,8 @@ def train(hyp, opt, device, tb_writer=None):
     if opt.sync_bn and cuda and rank != -1:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).to(device)
         print('Using SyncBatchNorm()')
-
     # Exponential moving average
     ema = ModelEMA(model) if rank in [-1, 0] else None
-
     # DDP mode
     if cuda and rank != -1:
         model = DDP(model, device_ids=[opt.local_rank], output_device=(opt.local_rank))
@@ -423,6 +421,7 @@ if __name__ == '__main__':
     parser.add_argument('--sync-bn', action='store_true', help='use SyncBatchNorm, only available in DDP mode')
     parser.add_argument('--local_rank', type=int, default=-1, help='DDP parameter, do not modify')
     parser.add_argument('--logdir', type=str, default='runs/', help='logging directory')
+    parser.add_argument('--port', type=str, default='29500', help='nccl port')
     opt = parser.parse_args()
 
     # Resume
@@ -447,6 +446,7 @@ if __name__ == '__main__':
         assert torch.cuda.device_count() > opt.local_rank
         torch.cuda.set_device(opt.local_rank)
         device = torch.device('cuda', opt.local_rank)
+        os.environ['MASTER_PORT'] = opt.port
         dist.init_process_group(backend='nccl', init_method='env://')  # distributed backend
         opt.world_size = dist.get_world_size()
         opt.global_rank = dist.get_rank()
