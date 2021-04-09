@@ -1,4 +1,5 @@
 import json
+import os
 import pickle
 from itertools import groupby
 from pathlib import Path
@@ -12,7 +13,7 @@ from mmcv import Config
 from mmdet.core import eval_map
 from tqdm import tqdm
 from vinbigdata import BoxCoordsFloat, BoxesMeta, BoxWithScore, ImageMeta, classname2mmdetid, mmdetid2classname
-from vinbigdata.utils import abs2rel, rel2abs
+from vinbigdata.utils import abs2rel, rel2abs, is_interactive
 
 
 def generate_gt_boxes(img_data: pd.DataFrame) -> BoxesMeta:
@@ -46,8 +47,11 @@ def batch_inference(models: List[Dict[str, str]],
             if not Path(file_name).exists() or nocache:
                 command = command.format(tool, model_data['config'], model_data['model'], model_data['num_gpu'],
                                          ids_file, file_name)
-                res = get_ipython().run_line_magic('sx', command)
-                print(res[-100:])
+                if is_interactive():
+                    res = get_ipython().run_line_magic('sx', command)
+                    print(res[-100:])
+                else:
+                    os.system(command)
             results.append((model_data['model'], model_data['type'], ids_file_final, file_name))
         elif model_data['type'] == 'scaled_yolo':
             command = 'PYTHONPATH=. python scripts/test_yolo.py --img {} --conf 0.0001 --batch 8 --device 0 --data {} \
@@ -58,8 +62,11 @@ def batch_inference(models: List[Dict[str, str]],
             if not Path(file_name).exists() or nocache:
                 command = command.format(model_data['img_shape'], model_data['config'], model_data['model'], task,
                                          file_name)
-                res = get_ipython().run_line_magic('sx', command)
-                print(res[-100:])
+                if is_interactive():
+                    res = get_ipython().run_line_magic('sx', command)
+                    print(res[-100:])
+                else:
+                    os.system(command)
             results.append((model_data['model'], model_data['type'], ids_file_final, file_name))
         else:
             raise ValueError('Invalid model type')
