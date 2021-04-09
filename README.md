@@ -1,13 +1,16 @@
 # VinBigData Chest X-ray Abnormalities Detection
 
 ## Brief description
-Solution of [VinBigData Chest X-ray Abnormalities Detection](https://www.kaggle.com/c/vinbigdata-chest-xray-abnormalities-detection/overview) that achieved 37 place out of 1277 participant. The main task was to construct an algorithm that can provide second opinion for radiologists about accurately identifing and localizing findings on chest X-rays.
+My solution of [VinBigData Chest X-ray Abnormalities Detection](https://www.kaggle.com/c/vinbigdata-chest-xray-abnormalities-detection/overview) that achieved 37 place out of 1277 participant. The main task was to construct an algorithm that can provide a second opinion for radiologists about accurately identifying and localizing findings on chest X-rays.
 
-Data: 15000 chest x-ray dicoms. Labels - 14 classes of abnormalities with bbox. ~4400 dicoms have some abnoramlities.
+Data: 15000 chest x-ray dicoms. Labels - 14 classes of abnormalities with bbox. ~4400 dicoms have some abnormalities.
 
 Metric: MAP@[IoU=0.4]
 
 Challenges: Noisy labels from multiple radiologists without consensus
+
+
+Example of labeled data:
 ![example](results/data/example.jpg)
 
 ## Final results
@@ -36,7 +39,7 @@ Challenges: Noisy labels from multiple radiologists without consensus
 +--------------------+-------+--------+--------+-------+
 ```
 
-## Solution overview and experiments
+## Solution overview
 
 ### Preprocessing
 Final choices:
@@ -56,11 +59,11 @@ Final choices:
 - Augmentation: HSV changes, small rotations and shifts, scale changes, MixUp, left-right flips
 - Add normal image to training with proportion 1:4
 - 5 ScaledYoloV4 models https://arxiv.org/abs/2011.08036
-- Exponential moving average and synchronized batch normalization during training helped a lot
+- Exponential moving average and synchronized batch normalization during the training helped a lot
 
 Less successful approaches:
 - Augmentation: CutOut, bbox jittering
-- Pretrain model on external data or use them with small weight https://github.com/Deepwise-AILab/ChestX-Det10-Dataset https://www.kaggle.com/nih-chest-xrays/data 
+- Pretrain models on external data or use them with small weight https://github.com/Deepwise-AILab/ChestX-Det10-Dataset https://www.kaggle.com/nih-chest-xrays/data 
 - Models: DetectoRS, YOLOv5, Cascade R-CNN, RetinaNet
 - Label smoothing and FocalLoss for classification and object part of full ScaledYoloV4 loss
 - Stochastic weight averaging of last 20 epochs
@@ -89,13 +92,13 @@ Less successful approaches:
 
 # Install and run instructions
 
-Repository contain some amount of code from https://github.com/WongKinYiu/ScaledYOLOv4/tree/yolov4-large and https://github.com/ultralytics/yolov5 
+Repository contains some amount of code from https://github.com/WongKinYiu/ScaledYOLOv4/tree/yolov4-large and https://github.com/ultralytics/yolov5 
 
 ## Repository structure
 
 ```text
 data
-|-raw               --- raw and exteranl data
+|-raw               --- raw and external data
 |-processed         --- processed data
 configs             --- configs for training models of DetectoRS and ScaledYoloV4 nets, preprocessing and postprocessing scripts
 dockerimage         --- docker image description and python dependencies
@@ -112,7 +115,7 @@ Build image
 docker build dockerimage/ -t cuda_image
 pip install pre-commit
 ```
-Run and enter to the container
+Run and enter the container
 ```
 docker run --gpus '"device=COMMA_SEPARATED_ID_LIST_OF_DEVICES"' --ipc=host -it -d -v /PATH_TO_LOCAL_REPOSITORY:/workdir -p 8888:8888 -p 6006:6006 cuda_image nohup jupyter notebook --ip=0.0.0.0 --port=8888 --allow-root
 
@@ -121,12 +124,12 @@ docker exec -it RUNNING_CONTAINER_ID bash
 If for you it's easy to work with notebooks every file inside scripts folder can be converted to jupyter notebook by running ipynb-py-convert {SCRIPT_NAME}.py {SCRIPT_NAME}.ipynb.
 
 ## Train pipeline
-All commands of the pipeline should be executed inside container.
+All commands of the pipeline should be executed inside the container.
 ```
 #download raw data
 sh scripts/download.sh
 
-# preprocess raw dicom and radiologists annotations to VOC 2012 format
+# preprocess raw dicoms and radiologists annotations to VOC 2012 format
 sh scripts/full_prerprocess.sh
 
 # Train models - you can skip this step and download trained models
@@ -137,7 +140,7 @@ bash scripts/train_models.sh 0 3 1024 150 # run command for one GPU with 12 GB o
 sh scripts/download_pretrained_models.sh
 ```
 ## Evaluate and submit pipeline
-All commands of the pipeline should be executed inside container.
+All commands of the pipeline should be executed inside the container.
 ```
 # Evaluate models by MAP@[IoU=0.4]
 PYTHONPATH=. python scripts/validate.py
