@@ -9,15 +9,15 @@ Solution of [VinBigData Chest X-ray Abnormalities Detection](https://www.kaggle.
 
 
 ## Minimal requirements
-32 GB of RAM
-1 GPU with at least 12 GB of GRAM
-250 GB of disk
+- 32 GB of RAM
+- 1 GPU with at least 12 GB of GRAM
+- 250 GB of disk
 
 ## Hardware used
-AMD Ryzen Threadripper 3960X 24 core
-2 cards - EVGA GeForce RTX 2080 TI FTW3 ULTRA HYBRID GAMING 12 GB
-128 GB RAM
-Samsung 970 evo plus 2 TB
+- AMD Ryzen Threadripper 3960X 24 core
+- 2 cards - EVGA GeForce RTX 2080 TI FTW3 ULTRA HYBRID GAMING 12 GB
+- 128 GB RAM
+- Samsung 970 evo plus 2 TB
 
 
 
