@@ -3,15 +3,67 @@
 ## Brief description
 Solution of [VinBigData Chest X-ray Abnormalities Detection](https://www.kaggle.com/c/vinbigdata-chest-xray-abnormalities-detection/overview) that achieved 37 place out of 1277 participant. The main task was to construct an algorithm that can provide second opinion for radiologists about accurately identifing and localizing findings on chest X-rays.
 
-Data: 15000 chest x-ray dicoms. Labels - 14 classes of abnormalities with bbox. ~3700 dicoms have some abnoramlities.
+Data: 15000 chest x-ray dicoms. Labels - 14 classes of abnormalities with bbox. ~4400 dicoms have some abnoramlities.
+
 Metric: MAP@[IoU=0.4]
 
+Challenges: Noisy labels from multiple radiologists without consensus
 
-## My final results
+
+## Final results
+5 fold cross-validation local CV
++--------------------+-------+--------+--------+-------+
+| class              | gts   | dets   | recall | ap    |
++--------------------+-------+--------+--------+-------+
+| Cardiomegaly       | 2313  | 74520  | 0.998  | 0.891 |
+| Aortic enlargement | 3073  | 69421  | 0.998  | 0.889 |
+| Pleural thickening | 3365  | 256081 | 0.925  | 0.354 |
+| ILD                | 632   | 95604  | 0.921  | 0.365 |
+| Nodule/Mass        | 1761  | 148953 | 0.865  | 0.402 |
+| Pulmonary fibrosis | 2631  | 184763 | 0.862  | 0.422 |
+| Lung Opacity       | 1760  | 98545  | 0.888  | 0.367 |
+| Atelectasis        | 201   | 24478  | 0.841  | 0.322 |
+| Other lesion       | 1632  | 241809 | 0.776  | 0.159 |
+| Infiltration       | 853   | 42089  | 0.905  | 0.502 |
+| Pleural effusion   | 1306  | 93543  | 0.936  | 0.606 |
+| Calcification      | 678   | 71238  | 0.891  | 0.237 |
+| Consolidation      | 399   | 26549  | 0.882  | 0.415 |
+| Pneumothorax       | 112   | 38163  | 0.821  | 0.470 |
+| No finding         | 10606 | 15000  | 1.000  | 0.988 |
++--------------------+-------+--------+--------+-------+
+| mAP                |       |        |        | 0.493 |
++--------------------+-------+--------+--------+-------+
 
 
-## Solution overview
+## Solution overview and experiments
 
+### Preprocessing
+Final choices:
+- Multiple radiologists data consolidation: weighted boxes fusion
+- Processed image resolution 1024 * 1024
+- Input to models: one channel with VOI-LUT and monochrome fixing https://www.kaggle.com/raddar/convert-dicom-to-np-array-the-correct-way
+
+Less successful approaches:
+- Leave only the high-precision boxes when multiple radiologists agreed defined by IoU > 0.15
+- Resolution different than 1024 * 1024
+- Multiple radiologists data consolidation with NMS
+- Input to models as an image channel: CLAHE, histogram equalization, prediction of lung mask from semantic segmentation that I trained on https://www.kaggle.com/nikhilpandey360/chest-xray-masks-and-labels
+
+
+### Modeling
+Final choices:
+- Augmentation: HSV changes, small rotations and shifts, scale changes, MixUp, left-right flips
+- Model: 5 ScaledYoloV4 models https://arxiv.org/abs/2011.08036
+- Exponential moving average and synchronized batch normalization during training
+
+Less successful approaches:
+- Augmentation: CutOut, bbox jittering
+- Models: DetectoRS, YOLOv5, Cascade R-CNN, RetinaNet
+- Label smoothing and FocalLoss for classification and object part of full ScaledYoloV4 loss
+- Stochastic weight averaging of final 20 epochs
+- 
+
+### Postprocessing
 
 
 ## Minimal hardware requirements
@@ -29,13 +81,15 @@ Metric: MAP@[IoU=0.4]
 
 # Install and run instructions
 
+Repository contain some modified version of the code from https://github.com/WongKinYiu/ScaledYOLOv4/tree/yolov4-large and https://github.com/ultralytics/yolov5 
+
 ## Repository structure
 
 ```text
 data
 |-raw               --- raw and exteranl data
 |-processed         --- processed data
-configs             --- configs for training models of detectorrs and scaled yolo nets, preprocessing and postprocessing scripts
+configs             --- configs for training models of DetectoRS and ScaledYoloV4 nets, preprocessing and postprocessing scripts
 dockerimage         --- docker image description and python dependencies
 scripts             --- runnable scripts of pipeline
 vinbigdata          --- python package with common code for this competition
