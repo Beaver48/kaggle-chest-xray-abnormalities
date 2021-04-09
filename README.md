@@ -8,7 +8,7 @@ Data: 15000 chest x-ray dicoms. Labels - 14 classes of abnormalities with bbox. 
 Metric: MAP@[IoU=0.4]
 
 Challenges: Noisy labels from multiple radiologists without consensus
-
+![example](results/data/example.jpg)
 
 ## Final results
 5 fold cross-validation local CV
