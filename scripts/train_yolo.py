@@ -23,8 +23,8 @@ from vinbigdata.scaled_yolov4.utils.datasets import create_dataloader
 from vinbigdata.scaled_yolov4.utils.general import (check_anchors, check_file, check_img_size, compute_loss, fitness,
                                                     get_latest_run, increment_dir, labels_to_class_weights,
                                                     labels_to_image_weights, plot_images, plot_labels, plot_results,
-                                                    strip_optimizer, torch_distributed_zero_first)
-from vinbigdata.scaled_yolov4.utils.torch_utils import ModelEMA, init_seeds, intersect_dicts, select_device
+                                                    strip_optimizer)
+from vinbigdata.scaled_yolov4.utils.torch_utils import ModelEMA, init_seeds_torch, intersect_dicts, select_device
 
 sys.path.append('vinbigdata/scaled_yolov4')
 
@@ -40,7 +40,6 @@ def train(hyp, opt, device, tb_writer=None):
     epochs, batch_size, total_batch_size, weights, rank = \
         opt.epochs, opt.batch_size, opt.total_batch_size, opt.weights, opt.global_rank
 
-    # TODO: Use DDP logging. Only the first process is allowed to log.
     # Save run settings
     with open(log_dir / 'hyp.yaml', 'w') as f:
         yaml.dump(hyp, f, sort_keys=False)
@@ -49,7 +48,7 @@ def train(hyp, opt, device, tb_writer=None):
 
     # Configure
     cuda = device.type != 'cpu'
-    init_seeds(2 + rank)
+    init_seeds_torch(2 + rank)
     with open(opt.data) as f:
         data_dict = yaml.load(f, Loader=yaml.FullLoader)  # model dict
     train_path = data_dict['train']
@@ -69,7 +68,6 @@ def train(hyp, opt, device, tb_writer=None):
         print('Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weights))  # report
     else:
         model = Model(opt.cfg, ch=3, nc=nc).to(device)  # create
-        #model = model.to(memory_format=torch.channels_last)  # create
 
     # Optimizer
     nbs = 64  # nominal batch size
@@ -98,7 +96,9 @@ def train(hyp, opt, device, tb_writer=None):
 
     # Scheduler https://arxiv.org/pdf/1812.01187.pdf
     # https://pytorch.org/docs/stable/_modules/torch/optim/lr_scheduler.html#OneCycleLR
-    lf = lambda x: (((1 + math.cos(x * math.pi / epochs)) / 2)**1.0) * 0.8 + 0.2  # cosine
+    def lf(iteration: int):
+        return (((1 + math.cos(iteration * math.pi / epochs)) / 2)**1.0) * 0.8 + 0.2
+
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
     # plot_lr_scheduler(optimizer, scheduler, epochs)
 
@@ -270,7 +270,6 @@ def train(hyp, opt, device, tb_writer=None):
             with amp.autocast(enabled=cuda):
                 # Forward
                 pred = model(imgs)
-                #pred = model(imgs.to(memory_format=torch.channels_last))
 
                 # Loss
                 loss, loss_items = compute_loss(pred, targets.to(device), model)  # scaled by batch_size
@@ -318,7 +317,7 @@ def train(hyp, opt, device, tb_writer=None):
                 ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'gr', 'names', 'stride'])
             final_epoch = epoch + 1 == epochs
             if not opt.notest or final_epoch:  # Calculate mAP
-                results, maps, times = test.evaluate(
+                results, maps, _ = test.evaluate(
                     opt.data,
                     task='val',
                     batch_size=batch_size,
@@ -332,7 +331,7 @@ def train(hyp, opt, device, tb_writer=None):
             # Write
             with open(results_file, 'a') as f:
                 f.write(s + '%10.4g' * 7 % results + '\n')  # P, R, mAP, F1, test_losses=(GIoU, obj, cls)
-            if len(opt.name) and opt.bucket:
+            if len(opt.name) > 0 and opt.bucket:
                 os.system('gsutil cp %s gs://%s/results/results%s.txt' % (results_file, opt.bucket, opt.name))
 
             # Tensorboard
@@ -373,7 +372,7 @@ def train(hyp, opt, device, tb_writer=None):
 
     if rank in [-1, 0]:
         # Strip optimizers
-        n = ('_' if len(opt.name) and not opt.name.isnumeric() else '') + opt.name
+        n = ('_' if len(opt.name) > 0 and not opt.name.isnumeric() else '') + opt.name
         fresults, flast, fbest = 'results%s.txt' % n, wdir + 'last%s.pt' % n, wdir + 'best%s.pt' % n
         for f1, f2 in zip([wdir + 'last.pt', wdir + 'best.pt', 'results.txt'], [flast, fbest, fresults]):
             if os.path.exists(f1):
@@ -433,7 +432,7 @@ if __name__ == '__main__':
 
     opt.hyp = opt.hyp or ('data/hyp.finetune.yaml' if opt.weights else 'data/hyp.scratch.yaml')
     opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
-    assert len(opt.cfg) or len(opt.weights), 'either --cfg or --weights must be specified'
+    assert len(opt.cfg) > 0 or len(opt.weights) > 0, 'either --cfg or --weights must be specified'
 
     opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)
     device = select_device(opt.device, batch_size=opt.batch_size)

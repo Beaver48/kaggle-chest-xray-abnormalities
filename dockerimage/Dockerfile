@@ -121,7 +121,7 @@ RUN pip install --no-cache-dir torch==1.7.1+cu110 torchvision==0.8.2+cu110 torch
 RUN git clone --branch 'v1.2.6' https://github.com/open-mmlab/mmcv.git /mmcv \
 && cd /mmcv && MMCV_WITH_OPS=1 pip install -e .
 
-RUN git clone https://github.com/open-mmlab/mmdetection.git /mmdetection
+RUN git clone --branch 'v2.11.0' https://github.com/open-mmlab/mmdetection.git /mmdetection
 WORKDIR /mmdetection
 ENV FORCE_CUDA="1"
 RUN pip install -r requirements/build.txt

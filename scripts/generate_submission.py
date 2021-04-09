@@ -1,6 +1,7 @@
 # %%
 from collections import defaultdict
 from itertools import groupby
+from pathlib import Path
 
 import cv2
 import matplotlib.pyplot as plt
@@ -20,7 +21,7 @@ if is_interactive():
 
 # %%
 config = Config.fromfile('configs/postprocess/postprocess.py')['config']
-test_results = batch_inference(config['detection_models'], config['test_ids'])
+test_results = batch_inference(config['detection_models'], config['test_ids'], nocache=False)
 
 # %%
 model_metadata = pd.read_csv(config['test_meta_file_path'])
@@ -29,7 +30,7 @@ result_test_data = defaultdict(list)
 for model, group in groupby(sorted(test_results, key=lambda x: x[0]), key=lambda x: x[0]):
     for test_data in group:
         with open(test_data[2]) as reader:
-            test_ids = [line.strip() for line in reader.readlines()]
+            test_ids = [Path(line.strip()).stem for line in reader.readlines()]
         predicted_boxes = predict_boxes(test_ids, model_metadata, test_data[3], test_data[1])
         result_test_data[model] = predicted_boxes
 
@@ -49,7 +50,7 @@ for img_id, img_shape, bbox_data in result_supressed_final:
         predict_str += f' {class_id} {score} {x_min} {y_min} {x_max} {y_max}'
     submit.append({'image_id': img_id, 'PredictionString': predict_str.strip()})
     if config['visualize'] and is_interactive():
-        img = cv2.imread('data/processed/vin_dataVOC2012/JPEGImages/' + img_id + '.png')
+        img = cv2.imread('data/processed/vinbigdataVOC2012/JPEGImages/' + img_id + '.png')
         img = cv2.resize(img, tuple(img_shape), interpolation=cv2.INTER_LANCZOS4)
         bboxes = [np.array(rel2abs(box, img_shape)).astype(np.int) for box in bbox_data[0]]
         img = plot_bboxes(img, bboxes, bbox_data[1], bbox_data[2], 0.05)

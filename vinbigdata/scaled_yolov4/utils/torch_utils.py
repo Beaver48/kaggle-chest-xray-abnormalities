@@ -10,7 +10,7 @@ import torch.nn.functional as F
 import torchvision.models as models
 
 
-def init_seeds(seed=0):
+def init_seeds_torch(seed=0):
     torch.manual_seed(seed)
 
     # Speed-reproducibility tradeoff https://pytorch.org/docs/stable/notes/randomness.html

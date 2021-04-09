@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from ensemble_boxes import weighted_boxes_fusion
 from mmcv import Config
-from sklearn.model_selection import GroupShuffleSplit
+# %%
+from sklearn.model_selection import GroupKFold
 from tqdm import tqdm
 from typing_extensions import TypedDict
 from vinbigdata.preprocess import BaseWriter, ImageMeta, ScaledYoloWriter, VocWriter, read_dicom_img
@@ -245,18 +246,18 @@ train.to_csv(Path(config['result_dir']) / 'train.csv')
 test = pd.DataFrame.from_records(test)
 test.to_csv(Path(config['result_dir']) / 'test.csv')
 
-# %%
-from sklearn.model_selection import GroupKFold
 gss = GroupKFold(n_splits=5)
 for ind, (train_indecies, test_indecies) in enumerate(gss.split(train, train['class_name'], train['image_id'])):
     for writer in img_writers:
         writer.write_image_set(
-            train['image_id'][train_indecies].drop_duplicates().sample(frac=1, random_state=211288).values, 'train_vin_fold_{}.txt'.format(ind))
+            train['image_id'][train_indecies].drop_duplicates().sample(frac=1, random_state=211288).values,
+            'train_vin_fold_{}.txt'.format(ind))
         writer.write_image_set(
-            train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288).values, 'val_fold_{}.txt'.format(ind))
+            train['image_id'][test_indecies].drop_duplicates().sample(frac=1, random_state=211288).values,
+            'val_fold_{}.txt'.format(ind))
 for writer in img_writers:
     writer.write_image_set(train['image_id'].drop_duplicates().sample(frac=1, random_state=211288).values,
-                               'all_vin.txt')
+                           'all_vin.txt')
     writer.write_image_set(test['img_id'].apply(lambda x: x).values, 'test.txt')
 
 # %%

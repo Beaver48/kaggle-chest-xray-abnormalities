@@ -21,7 +21,7 @@ import yaml
 from scipy.cluster.vq import kmeans
 from scipy.signal import butter, filtfilt
 from tqdm import tqdm
-from vinbigdata.scaled_yolov4.utils.torch_utils import init_seeds, is_parallel
+from vinbigdata.scaled_yolov4.utils.torch_utils import init_seeds_torch, is_parallel
 
 # Set printoptions
 torch.set_printoptions(linewidth=320, precision=5, profile='long')
@@ -47,7 +47,7 @@ def torch_distributed_zero_first(local_rank: int):
 def init_seeds(seed=0):
     random.seed(seed)
     np.random.seed(seed)
-    init_seeds(seed=seed)
+    init_seeds_torch(seed=seed)
 
 
 def get_latest_run(search_dir='./runs'):

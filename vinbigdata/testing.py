@@ -8,6 +8,7 @@ import checksum
 import numpy as np
 import pandas as pd
 from IPython import get_ipython
+from mmcv import Config
 from mmdet.core import eval_map
 from tqdm import tqdm
 from vinbigdata import BoxCoordsFloat, BoxesMeta, BoxWithScore, ImageMeta, classname2mmdetid, mmdetid2classname
@@ -25,36 +26,41 @@ def generate_gt_boxes(img_data: pd.DataFrame) -> BoxesMeta:
     return (boxes, scores, labels)
 
 
-def batch_inference(models: List[Dict[str, str]], ids_file: str) -> List[Tuple[str, str, str, str]]:
+def batch_inference(models: List[Dict[str, str]],
+                    ids_file: str,
+                    nocache: bool = True) -> List[Tuple[str, str, str, str]]:
     results = []
-
+    ids_file_final = ids_file
     for model_data in tqdm(models, total=len(models)):
         model_hash = checksum.get_for_file(model_data['model'])
-        ids_hash = checksum.get_for_file(ids_file)
+        if ids_file is None and model_data['type'] == 'scaled_yolo':
+            ids_file_final = Config.fromfile(model_data['config'])['val']
+
+        ids_hash = checksum.get_for_file(ids_file_final)
         if model_data['type'] == 'mmdet':
             tool = '/mmdetection/tools/dist_test.sh'
             command = 'bash {} {} {} {} --eval=mAP --cfg-options data.test.ann_file={} \
                    --eval-options="iou_thr=0.4" --out={}'
 
             file_name = 'results/data/result-{}-{}.pkl'.format(model_hash, ids_hash)
-            if not Path(file_name).exists():
+            if not Path(file_name).exists() or nocache:
                 command = command.format(tool, model_data['config'], model_data['model'], model_data['num_gpu'],
                                          ids_file, file_name)
                 res = get_ipython().run_line_magic('sx', command)
                 print(res[-100:])
-            results.append((model_data['model'], model_data['type'], ids_file, file_name))
+            results.append((model_data['model'], model_data['type'], ids_file_final, file_name))
         elif model_data['type'] == 'scaled_yolo':
             command = 'PYTHONPATH=. python scripts/test_yolo.py --img {} --conf 0.0001 --batch 8 --device 0 --data {} \
                 --weights {} --verbose --save-json --task={} --result-file={}'
 
             file_name = 'results/data/result-{}-{}.json'.format(model_hash, ids_hash)
-            task = 'val' if 'val' in ids_file else 'test'
-            if not Path(file_name).exists():
+            task = 'val' if 'val' in ids_file_final else 'test'
+            if not Path(file_name).exists() or nocache:
                 command = command.format(model_data['img_shape'], model_data['config'], model_data['model'], task,
                                          file_name)
                 res = get_ipython().run_line_magic('sx', command)
                 print(res[-100:])
-            results.append((model_data['model'], model_data['type'], ids_file, file_name))
+            results.append((model_data['model'], model_data['type'], ids_file_final, file_name))
         else:
             raise ValueError('Invalid model type')
     return results

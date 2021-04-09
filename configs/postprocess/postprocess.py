@@ -1,26 +1,32 @@
 config = dict(
     detection_models=[
-        # dict(
-        #    type='mmdet',
-        #    model='results/models/detectors_equalize/latest.pth',
-        #    config='configs/mmdetection/detectors_training.py',
-        #    num_gpu=2),
         dict(
             type='scaled_yolo',
-            model='results/models/scaled_yolo_normal-1000_epoch-160_only-vin.pt',
-            config='configs/yolo/data.yaml',
-            img_shape=1024),  # 0.457 local dirty cv, 0.285 leaderboard
+            model='results/models/scaled_yolo_fold_0.pt',
+            config='configs/yolo/data_fold_0.yaml',
+            img_shape=1024),
         dict(
             type='scaled_yolo',
-            model='results/models/scaled_yolo_normal-1000_epoch-150_vin_custom.pt',
-            config='configs/yolo/data.yaml',
-            img_shape=1024) # 0.445 local dirty cv, 0.282 leaderboard
-        #dict(
-        #    type='scaled_yolo',
-        #    model='results/models/scaled_yolo_normal-1000_epoch-160_vin_nih.pt',
-        #    config='configs/yolo/data.yaml',
-        #    img_shape=1024),  # 0.466 local dirty cv, 0.253 leaderboard
+            model='results/models/scaled_yolo_fold_1.pt',
+            config='configs/yolo/data_fold_1.yaml',
+            img_shape=1024),
+        dict(
+            type='scaled_yolo',
+            model='results/models/scaled_yolo_fold_2.pt',
+            config='configs/yolo/data_fold_2.yaml',
+            img_shape=1024),
+        dict(
+            type='scaled_yolo',
+            model='results/models/scaled_yolo_fold_3.pt',
+            config='configs/yolo/data_fold_3.yaml',
+            img_shape=1024),
+        dict(
+            type='scaled_yolo',
+            model='results/models/scaled_yolo_fold_4.pt',
+            config='configs/yolo/data_fold_4.yaml',
+            img_shape=1024)
     ],
+    grouped=False,
     meta_file_path='data/processed/vinbigdataVOC2012/train.csv',
     test_meta_file_path='data/processed/vinbigdataVOC2012/test.csv',
     val_ids='data/processed/vinbigdataVOC2012/image_sets/val.txt',

@@ -1,21 +1,8 @@
 import argparse
-import glob
-import json
-import os
-import shutil
 import sys
-from pathlib import Path
 
-import numpy as np
-import torch
-import yaml
-from tqdm import tqdm
 from vinbigdata.scaled_yolov4.test import evaluate
-from vinbigdata.scaled_yolov4.utils.datasets import create_dataloader
-from vinbigdata.scaled_yolov4.utils.general import (ap_per_class, box_iou, check_file, check_img_size, clip_coords,
-                                                    compute_loss, non_max_suppression, output_to_target, plot_images,
-                                                    scale_coords, xywh2xyxy, xyxy2xywh)
-from vinbigdata.scaled_yolov4.utils.torch_utils import select_device, time_synchronized
+from vinbigdata.scaled_yolov4.utils.general import check_file
 
 sys.path.append('vinbigdata/scaled_yolov4')
 
