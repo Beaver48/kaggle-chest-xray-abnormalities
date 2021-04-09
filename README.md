@@ -12,6 +12,7 @@ Challenges: Noisy labels from multiple radiologists without consensus
 
 ## Final results
 5 fold cross-validation local CV
+```text
 +--------------------+-------+--------+--------+-------+
 | class              | gts   | dets   | recall | ap    |
 +--------------------+-------+--------+--------+-------+
@@ -33,38 +34,45 @@ Challenges: Noisy labels from multiple radiologists without consensus
 +--------------------+-------+--------+--------+-------+
 | mAP                |       |        |        | 0.493 |
 +--------------------+-------+--------+--------+-------+
-
+```
 
 ## Solution overview and experiments
 
 ### Preprocessing
 Final choices:
-- Multiple radiologists data consolidation: weighted boxes fusion
+- Multiple radiologists data consolidation with weighted boxes fusion
 - Processed image resolution 1024 * 1024
-- Input to models: one channel with VOI-LUT and monochrome fixing https://www.kaggle.com/raddar/convert-dicom-to-np-array-the-correct-way
+- Input to models as one channel image with VOI-LUT transform and monochrome fixing https://www.kaggle.com/raddar/convert-dicom-to-np-array-the-correct-way
 
 Less successful approaches:
 - Leave only the high-precision boxes when multiple radiologists agreed defined by IoU > 0.15
 - Resolution different than 1024 * 1024
 - Multiple radiologists data consolidation with NMS
-- Input to models as an image channel: CLAHE, histogram equalization, prediction of lung mask from semantic segmentation that I trained on https://www.kaggle.com/nikhilpandey360/chest-xray-masks-and-labels
+- Input to models as an image channel: CLAHE, histogram equalization, contrast stretching, prediction of lung mask from semantic segmentation that I trained on https://www.kaggle.com/nikhilpandey360/chest-xray-masks-and-labels
 
 
 ### Modeling
 Final choices:
 - Augmentation: HSV changes, small rotations and shifts, scale changes, MixUp, left-right flips
-- Model: 5 ScaledYoloV4 models https://arxiv.org/abs/2011.08036
-- Exponential moving average and synchronized batch normalization during training
+- Add normal image to training with proportion 1:4
+- 5 ScaledYoloV4 models https://arxiv.org/abs/2011.08036
+- Exponential moving average and synchronized batch normalization during training helped a lot
 
 Less successful approaches:
 - Augmentation: CutOut, bbox jittering
+- Pretrain model on external data or use them with small weight https://github.com/Deepwise-AILab/ChestX-Det10-Dataset https://www.kaggle.com/nih-chest-xrays/data 
 - Models: DetectoRS, YOLOv5, Cascade R-CNN, RetinaNet
 - Label smoothing and FocalLoss for classification and object part of full ScaledYoloV4 loss
-- Stochastic weight averaging of final 20 epochs
-- 
+- Stochastic weight averaging of last 20 epochs
 
 ### Postprocessing
+Final choices:
+- NMS with IoU 0.5
+- And 'No finding' class to all images with probability = 1 - MAX(probability of detected boxes)
 
+Less successful approaches:
+- Additional 2 stage 2 class or 14 classes classifiers 
+- Ensembling ScaledYoloV4 with DetectoRS or other models from mmdetection
 
 ## Minimal hardware requirements
 - 32 GB of RAM
@@ -81,7 +89,7 @@ Less successful approaches:
 
 # Install and run instructions
 
-Repository contain some modified version of the code from https://github.com/WongKinYiu/ScaledYOLOv4/tree/yolov4-large and https://github.com/ultralytics/yolov5 
+Repository contain some amount of code from https://github.com/WongKinYiu/ScaledYOLOv4/tree/yolov4-large and https://github.com/ultralytics/yolov5 
 
 ## Repository structure
 
