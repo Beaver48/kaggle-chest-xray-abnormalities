@@ -1,12 +1,13 @@
 # %%
 from collections import defaultdict
 from itertools import groupby
-from pathlib import Path
 
 import cv2
+import warnings
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from pathlib import Path
 from IPython import get_ipython
 from mmcv import Config
 from vinbigdata.postprocess import nms_models, normal_by_boxes
@@ -48,7 +49,11 @@ for model in result_data.keys():
 # %%
 for model in result_data.keys():
     print('Result :', model)
-    measure_res = calc_measure(result_data[model], gt_data[model])
+    copy = {model: result_data[model]}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result_supressed = [(res[0], res[1], normal_by_boxes(*res[2], res[1])) for res in nms_models(copy)]
+    measure_res = calc_measure(result_supressed, gt_data[model])
 
 # %%
 if config['grouped']:
@@ -72,6 +77,5 @@ if config['grouped']:
         bboxes_gt = [np.array(rel2abs(box, img_shape)).astype(np.int) for box in bbox_data[0]]
         bboxes_res = [np.array(rel2abs(box, img_shape)).astype(np.int) for box in res1[2][0]]
         bboxes_res_nms = [np.array(rel2abs(box, img_shape)).astype(np.int) for box in res2[2][0]]
-        visualize_two_bbox_set(img, (bboxes_gt, bbox_data[1], bbox_data[2]), (bboxes_res_nms, res2[2][1], res2[2][2]),
-                               0.1)
+        visualize_two_bbox_set(img, (bboxes_gt, bbox_data[1], bbox_data[2]), (bboxes_res_nms, res2[2][1], res2[2][2]), 0.1)
         plt.show()
